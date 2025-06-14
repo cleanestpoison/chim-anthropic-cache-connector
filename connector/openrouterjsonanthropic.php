@@ -169,6 +169,18 @@ function logMessage(string|array $message, string $level = 'INFO', string $logFi
     return true;
 }
 
+function extract_specific_section(&$source, $sectionHeader) {
+    // Escape the header for regex and match any level of underlines if present
+    $pattern = '/##+#\s*' . preg_quote($sectionHeader) . '\s*\R[\s\S]*?(?=\R#|$)/';
+
+    if (preg_match($pattern, $source, $matches)) {
+        $extracted = $matches[0];
+        $source = preg_replace($pattern, '', $source, 1);
+        return $extracted;
+    }
+    return null;
+}
+
 function extract_and_remove_section(&$text, $section_name)
 {
     // Pattern includes section header and content, up to but not including next top-level header or end
@@ -181,6 +193,25 @@ function extract_and_remove_section(&$text, $section_name)
     } else {
         return '';
     }
+}
+
+function lazyEmpty($string) {
+ 
+    if (empty(trim($string)))
+        return true;
+    
+    if (trim($string)=="Null")
+        return true;
+    
+    if (trim($string)=="null")
+        return true;
+    
+    if (trim($string)=="None")
+        return true;
+    
+    if (trim($string)=="none")
+        return true;
+    
 }
 
 class openrouterjsonanthropic
@@ -218,6 +249,7 @@ class openrouterjsonanthropic
     public function open($contextData, $customParms)
     {
         // --- Setup and Logging ---
+        require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."functions".DIRECTORY_SEPARATOR."json_response.php");
 
         $herikaNameForLog = isset($GLOBALS["HERIKA_NAME"]) ? $GLOBALS["HERIKA_NAME"] : 'default_herika';
         $herikaName = $herikaNameForLog;
@@ -234,15 +266,15 @@ class openrouterjsonanthropic
         if (isset($GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"]) && in_array($GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"], array('content', 'ttl'))) {
             $sysCacheStrategy = $GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"];
         }
-        $sysCacheTTL = 7200;
+        $sysCacheTTL = 900;
         if (isset($GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"]) && is_numeric($GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"]) && $GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"] >= 0) {
             $sysCacheTTL = (int) $GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"];
         }
-        $dialogueCacheTTL = 7200;
+        $dialogueCacheTTL = 900;
         if (isset($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"]) && is_numeric($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"]) && $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"] >= 0) {
             $dialogueCacheTTL = (int) $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"];
         }
-        $numMessagesToKeepUncached = 15;
+        $numMessagesToKeepUncached = 5;
         if (isset($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"]) && is_numeric($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"]) && $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"] >= 0) {
             $numMessagesToKeepUncached = (int) $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"];
         }
@@ -310,51 +342,33 @@ class openrouterjsonanthropic
 
         // NEW: Append AVAILABLE ACTION text and additional messages to ensure actions are sent to LLM
         // Use dynamic names from globals or context
-        $playerName = isset($GLOBALS["PLAYER_NAME"]) ? $GLOBALS["PLAYER_NAME"] : "Alethia";
-        $characterName = isset($GLOBALS["HERIKA_NAME"]) ? $GLOBALS["HERIKA_NAME"] : "Brelyna Maryon";
         $characters = DataBeingsInRange();
 
         $cacheControlType = array("type" => "ephemeral", "ttl" => "1h");
 
+        // build actions and json instruction
+        if (isset($GLOBALS["PATCH_PROMPT_ENFORCE_ACTIONS"]) && $GLOBALS["PATCH_PROMPT_ENFORCE_ACTIONS"]) {
+            $prefix="{$GLOBALS["COMMAND_PROMPT_ENFORCE_ACTIONS"]}";
+        } else {
+            $prefix="";
+        }
+        if (strpos($GLOBALS["HERIKA_PERS"],"#SpeechStyle")!==false) {
+            $speechReinforcement="Use #SpeechStyle.";
+        } else
+            $speechReinforcement="";
+
+        $zonosTones = $GLOBALS["TTSFUNCTION"] == "zonos_gradio" ? " (Response tones are mandatory in the response)" : "";
+
+        $jsonResponseInstruction = "{$prefix}. $speechReinforcement Use ONLY this JSON object to give your answer. Do not send any other characters outside of this JSON structure$zonosTones: ".json_encode($GLOBALS["responseTemplate"]);
+
+        // remove dynamic targets, that might be shitty when we cache them
+        $availableActions = preg_replace('/\(available targets:[^\n]*/', '', $GLOBALS["COMMAND_PROMPT"]);
+
         $actionsText = "\n" .
-            "AVAILABLE ACTION: Inspect (Inspects target character's OUTFIT and GEAR. JUST REPLY something like 'Let me see' and wait)\n" .
-            "AVAILABLE ACTION: InspectSurroundings (Looks for beings or enemies nearby)\n" .
-            "AVAILABLE ACTION: ExchangeItems (Initiates trading or exchange items with {$playerName}.)\n" .
-            "AVAILABLE ACTION: Attack (Attacks actor, npc or being.)\n" .
-            "AVAILABLE ACTION: Hunt (Try to hunt/kill ar animal)\n" .
-            "AVAILABLE ACTION: ListInventory (Search in {$characterName}'s inventory, backpack or pocket. List inventory)\n" .
-            "AVAILABLE ACTION: SheatheWeapon (Sheates current weapon)\n" .
-            "AVAILABLE ACTION: LetsRelax (Stop questing. Relax and rest.)\n" .
-            "AVAILABLE ACTION: ReadQuestJournal (Only use if {$playerName} explicitly ask for a quest. Get info about current quests)\n" .
-            "AVAILABLE ACTION: IncreaseWalkSpeed (Increase {$characterName} speed when moving or travelling)\n" .
-            "AVAILABLE ACTION: DecreaseWalkSpeed (Decrease {$characterName} speed when moving or travelling)\n" .
-            "AVAILABLE ACTION: WaitHere ({$characterName} waits and stands at the current place)\n" .
-            "AVAILABLE ACTION: StartLooting (Start looting the area)\n" .
-            "AVAILABLE ACTION: StopLooting (Stop looting the area)\n" .
-            "AVAILABLE ACTION: IncreaseArousal (Signal that you're becoming more aroused - use when events are stimulating, but prioritize other actions that directly advance the scene)\n" .
-            "AVAILABLE ACTION: DecreaseArousal (Signal that you're becoming less aroused - use when excitement is dampening, but prioritize other actions that directly advance the scene)\n" .
-            "AVAILABLE ACTION: Masturbate (Begin pleasuring yourself without a partner - use when alone or to arouse others)\n" .
-            "AVAILABLE ACTION: StartVaginal (Initiate vaginal intercourse with the target - one of the primary sex actions)\n" .
-            "AVAILABLE ACTION: StartAnal (Initiate anal intercourse with him - an intimate and intense sexual action)\n" .
-            "AVAILABLE ACTION: StartThreesome (Initiate sexual activity with multiple partners simultaneously - use for three-person encounters)\n" .
-            "AVAILABLE ACTION: StartOrgy (Begin group sexual activity with multiple willing participants in the vicinity)\n" .
-            "AVAILABLE ACTION: PutOnClothes (Dress yourself in available clothing and armor - restores modesty)\n" .
-            "AVAILABLE ACTION: RemoveClothes (Take off all clothing and armor - necessary for intimate activities)\n" .
-            "AVAILABLE ACTION: TakeASeat (Sit down) \n" .
-            "AVAILABLE ACTION: StartBlowjob (Perform or receive oral sex on the penis)\n" .
-            "AVAILABLE ACTION: StartHandjob (Stimulate his penis with your hands or have him stimulate yours)\n" .
-            "AVAILABLE ACTION: Hug (Embrace him in a warm hug - shows affection, comfort, or friendship)\n" .
-            "AVAILABLE ACTION: Kiss (Kiss him on the lips - expresses romantic or sexual interest)\n" .
-            "AVAILABLE ACTION: Molest (Force unwanted sexual contact on him - a criminal act of assault (use with caution))\n" .
-            "AVAILABLE ACTION: Grope (Touch and fondle his body in a sexual manner - shows desire and dominance)\n" .
-            "AVAILABLE ACTION: PinchNipples (Firmly pinch and manipulate his nipples - stimulates sensitive nerve endings)\n" .
-            "AVAILABLE ACTION: Talk\n" .
-            "AVAILABLE ACTION: SpankAss (Strike her buttocks firmly - can be playful, disciplinary, or erotic)\n" .
-            "AVAILABLE ACTION: SpankTits (Strike her breasts firmly - an intense erotic act that mixes pain and pleasure)\n" .
-            "AVAILABLE ACTION: Fight ((actor) engages non lethtal combat with another actor, using weapons)\n" .
-            "AVAILABLE ACTION: ExitLocation ((actor) travels to home/origin place.Returns home.)\n" .
-            "AVAILABLE ACTION: TravelTo (Long distance travel command. Use it to move to major locations and landmarks, or nearby buildings.) \n" .
-            "AVAILABLE ACTION: UseSoulGaze (Take a look around and see what {$playerName} sees. Use this action to get information about what is visible and how it looks.)\n";
+            $availableActions . 
+            "\n" .
+            $jsonResponseInstruction;
+
         $dynamicEnvironment = "";
 
         foreach ($contextDataOrig as $n => $element) {
@@ -393,26 +407,28 @@ class openrouterjsonanthropic
                         error_log("{$logPrefix} System cache miss (file invalid or missing).");
                     }
 
-                    if ($isSystemCacheValid) {
+                    // extract dynamic relevant parts
+                    $environmental = extract_and_remove_section($systemContentCurrent, 'Environmental Context');
+                    $additional = extract_and_remove_section($systemContentCurrent, 'Additional Information');
 
-                        $environmental = extract_and_remove_section($systemContentCurrent, 'Environmental Context');
-                        $additional = extract_and_remove_section($systemContentCurrent, 'Additional Information');
-                        $dynamicEnvironment = $environmental . "\n\n" . $additional;
-                        $finalSend = $cacheSystemMessages["content"] . "\n" . $actionsText;
+                    $additionalCharacter = extract_specific_section($systemContentCurrent, 'Additional Character Information');
+                    $combatStatus = extract_specific_section($systemContentCurrent, 'Combat Vitals');
+                    $arousal = extract_specific_section($systemContentCurrent, sectionHeader: 'Arousal Status');
+
+                    
+                    $dynamicEnvironment = $environmental . "\n\n" . $additional . "\n\n" . $additionalCharacter . "\n\n" .  $combatStatus . "\n\n" . $arousal;
+
+                    if ($isSystemCacheValid) {
+                        $finalSend = $cacheSystemMessages["content"];
 
                         $finalMessagesToSend[] = array("role" => "system", "content" => array(array("type" => "text", "text" => $finalSend, "cache_control" => $cacheControlType)));
                         $systemContentForCacheFile = null;
                     } else {
-
-                        $environmental = extract_and_remove_section($systemContentCurrent, 'Environmental Context');
-                        $additional = extract_and_remove_section($systemContentCurrent, 'Additional Information');
-                        $dynamicEnvironment = $environmental . "\n\n" . $additional;
-
                         $finalSend = $systemContentCurrent . "\n" . $actionsText;
 
-                        $finalMessagesToSend[] = array("role" => "system", "content" => array(array('type' => 'text', 'text' => $finalSend)), "cache_control" => $cacheControlType);
+                        $finalMessagesToSend[] = array("role" => "system", "content" => array(array('type' => 'text', 'text' => $finalSend, "cache_control" => $cacheControlType)));
 
-                        $systemContentForCacheFile = $systemContentCurrent;
+                        $systemContentForCacheFile = $finalSend;
                     }
                 } elseif ($processedFirstSystem && !empty($trimmedSystemContent)) {
                     $cToSend = array(array('type' => 'text', 'text' => $trimmedSystemContent, "cache_control" => $cacheControlType));
@@ -421,12 +437,12 @@ class openrouterjsonanthropic
             }
         }
 
-
         if ($systemContentForCacheFile !== null) {
             connector_cacheWriteToFile($cacheSystemFile, $systemContentForCacheFile, $currentTime, null, null);
             error_log("{$logPrefix} System cache updated.");
         }
         // --- End System Processing ---
+        $dynamicEnvironment .= "\nNearby available targets, beings or persons: {$characters})\n";
         // --- Step 2: Process Combined Dialogue History ---
         $needsRebuild = false;
         $startIndexForAddingIndividualMessages = 0;
@@ -573,7 +589,6 @@ class openrouterjsonanthropic
             $hitDebugInfo['lastCachedHash'] = (!empty($rebuiltHash)) ? $rebuiltHash : 'N/A'; // PHP 5 empty check
         }
 
-
         // Add individual messages after the cached portion
         $contentTextToSend = [];
         error_log("{$logPrefix} Building final payload: Adding individual messages from original context index {$startIndexForAddingIndividualMessages} onwards.");
@@ -604,10 +619,11 @@ class openrouterjsonanthropic
                 }
             }
         }
+
         //array_pop($contentTextToSend);
 
         // Get the index of the last element
-        $lastIndex = count($contentTextToSend) - 2;
+        $lastIndex = count($contentTextToSend) - 3;
 
         // Make sure the array is not empty before trying to access the last element
         if ($lastIndex >= 0) {
@@ -615,6 +631,8 @@ class openrouterjsonanthropic
             // Let's say you want to add a field called "speaker"
             $contentTextToSend[$lastIndex]["cache_control"] = $cacheControlType;
         }
+
+        array_splice($contentTextToSend, count($contentTextToSend)-2, 0, [array('type' => 'text', 'text' => $dynamicEnvironment)]);
 
         $finalMessagesToSend[] = array('role' => 'user', 'content' => $contentTextToSend);
 
@@ -636,14 +654,10 @@ class openrouterjsonanthropic
             error_log("{$logPrefix} Added example interaction since no assistant history was found.");
         }
 
-        // Add final user instruction for JSON response format
-        $jsonResponseInstruction = "Respond as {$characterName} would in this situation. Express your thoughts or dialogue naturally, then consider boldly using an appropriate action that aligns with your character\'s personality and objectives. Your response should feel authentic and progress the scene or conversation naturally. Provide variety in your responses, avoid repeating the same phrases while still being consistent with the character and maintaining scene continuity. You MUST respond with no more than 2-3 sentences and no more than 40 words. Use ONLY this JSON object to give your answer. Do not send any other characters outside of this JSON structure: {\"character\":\"{$characterName}\",\"listener\":\"specify who {$characterName} is talking to\",\"mood\":\"irritated|seductive|smirking|amused|sexy|playful|kindly|sardonic|mocking|assertive|assisting|smug|default|teasing|neutral|sarcastic|lovely|sassy\",\"action\":\"LetsRelax|StartBlowjob|ReadQuestJournal|StartAnal|Masturbate|StartVaginal|StartOrgy|RemoveClothes|PinchNipples|SheatheWeapon|Grope|StartThreesome|StopLooting|IncreaseWalkSpeed|InspectSurroundings|ListInventory|Hunt|GiveItem|TakeItem|WaitHere|StartLooting|ExchangeItems|Inspect|Attack|DecreaseArousal|TakeASeat|Talk|StartHandjob|DecreaseWalkSpeed|PutOnClothes|IncreaseArousal|Hug|Kiss|Molest|SpankAss|SpankTits|TravelTo|ReceiveCoinsFromPlayer|Fight|ExitLocation|GiveCoinsTo|GiveItemToActor|GoToSleep|UseSoulGaze|Trade|FollowTarget
-\", \"target\":\"action's target|destination name\", \"message\":\"lines of dialogue\"}"
-            . "\nYou MUST only answer with a JSON Object."
-            . "\nDO NOT include any markdown, explanations, or conversation outside the JSON object."
-            . "\nEnsure the first character of your response is '{'. Ensure the last character of your response is '}'.";
-        $finalMessagesToSend[] = array(
-            'role' => 'user',
+        //$finalMessagesToSend[] = array('role' => 'user', 'content' => array(array('type' => 'text', 'text' => $dynamicEnvironment)));
+
+        /*$finalMessagesToSend[] = array(
+            'role' => 'system',
             'content' => array(
                 array(
                     'type' => 'text',
@@ -651,26 +665,9 @@ class openrouterjsonanthropic
                     'cache_control' => $cacheControlType
                 )
             )
-        );
+        );*/
         error_log("{$logPrefix} Added JSON response instruction as final user message.");
-
-
-        $finalMessagesToSend[] = array('role' => 'user', 'content' => array(array('type' => 'text', 'text' => $dynamicEnvironment)));
-        // --- Final Debug Logging for Cache Hit/Miss ---
-
-        // --- Final Debug Logging for Cache Hit/Miss ---
-        try {
-            $logTimestamp = date(DateTime::ATOM);
-            $status = isset($hitDebugInfo['status']) ? $hitDebugInfo['status'] : 'UNKNOWN';
-            $reason = isset($hitDebugInfo['reason']) ? $hitDebugInfo['reason'] : 'Unknown';
-            $cIdx = isset($hitDebugInfo['lastCachedIndex']) ? $hitDebugInfo['lastCachedIndex'] : 'N/A';
-            $cHash = isset($hitDebugInfo['lastCachedHash']) ? $hitDebugInfo['lastCachedHash'] : 'N/A';
-            $fIdx = isset($hitDebugInfo['foundIndex']) ? $hitDebugInfo['foundIndex'] : -1;
-        } catch (Exception $e) {
-            error_log("{$logPrefix} Cache Debug Log Err: " . $e->getMessage());
-        }
-        // --- END Logging ----
-
+        
         // Payload Construction
         $data = array(
             'model' => $model,
@@ -1016,6 +1013,20 @@ class openrouterjsonanthropic
         if (!empty($buffer)) {
             $tempJson = json_decode($this->_buffer, true);
             if (json_last_error() === JSON_ERROR_NONE && isset($tempJson['message']) && !empty($tempJson['message'])) {
+                $GLOBALS["SCRIPTLINE_ANIMATION"]=GetAnimationHex($tempJson["mood"]);
+                $GLOBALS["SCRIPTLINE_EXPRESSION"]=GetExpression($tempJson["mood"]);
+                logMessage("before listener check");
+                if (isset($tempJson["listener"])) {
+                    logMessage("in listener check");
+                    if (isset($tempJson["action"])&& ($tempJson["action"]=="Talk")&& lazyEmpty($tempJson["listener"]) && !lazyEmpty($tempJson["target"])) {
+                        logMessage("in target check");
+                        $GLOBALS["SCRIPTLINE_LISTENER"]=$tempJson["target"];
+                    }
+                    else {
+                        logMessage("in non target check");
+                        $GLOBALS["SCRIPTLINE_LISTENER"]=$tempJson["listener"];
+                    }
+                }
                 return $tempJson['message'];
             }
         }
@@ -1073,7 +1084,7 @@ class openrouterjsonanthropic
         global $alreadysent;
         $this->_commandBuffer = array();
         $herikaName = isset($GLOBALS["HERIKA_NAME"]) ? $GLOBALS["HERIKA_NAME"] : 'default_herika';
-        error_log("start process actions");
+        logMessage("start process actions");
         // First, attempt to parse JSON directly from the buffer (for responses not using tool calls)
         if (!empty($this->_buffer)) {
             // Attempt to extract valid JSON from buffer (handle partial or malformed JSON)
@@ -1083,7 +1094,12 @@ class openrouterjsonanthropic
                 $possibleJson = substr($this->_buffer, $jsonStart, $jsonEnd - $jsonStart + 1);
                 $parsedResponse = json_decode($possibleJson, true);
                 if (json_last_error() === JSON_ERROR_NONE && is_array($parsedResponse)) {
-                    error_log("[{$this->name}:{$herikaName}] Parsed JSON directly from buffer: " . json_encode($parsedResponse));
+                    logMessage("[{$this->name}:{$herikaName}] Parsed JSON directly from buffer: " . json_encode($parsedResponse));
+                    //if (isset($parsedResponse["mood"])) {
+                    //    logMessage($parsedResponse);
+                    //    $GLOBALS["SCRIPTLINE_ANIMATION"]=GetAnimationHex($parsedResponse["mood"]);
+                    //    $GLOBALS["SCRIPTLINE_EXPRESSION"]=GetExpression($parsedResponse["mood"]);
+                    //}
                     if (isset($parsedResponse['action']) && !empty($parsedResponse['action'])) {
                         $target = isset($parsedResponse['target']) ? $parsedResponse['target'] : '';
                         $character = isset($parsedResponse['character']) ? $parsedResponse['character'] : $herikaName;
@@ -1091,30 +1107,30 @@ class openrouterjsonanthropic
                         if (!isset($alreadysent[$commandKey]) || empty($alreadysent[$commandKey])) {
                             $functionCodeName = function_exists('getFunctionCodeName') ? getFunctionCodeName($parsedResponse['action']) : $parsedResponse['action'];
                             $functionCodeName = empty($functionCodeName) ? $parsedResponse['action'] : $functionCodeName;
-                            error_log("FunctionCodeName: {$functionCodeName}");
-                            error_log("actionName: {$parsedResponse['action']}");
+                            logMessage("FunctionCodeName: {$functionCodeName}");
+                            logMessage("actionName: {$parsedResponse['action']}");
                             $commandString = "{$character}|command|{$functionCodeName}@{$target}\r\n";
                             $this->_commandBuffer[] = $commandString;
                             $alreadysent[$commandKey] = $commandString;
-                            error_log("[{$this->name}:{$herikaName}] Generated command from buffer JSON: {$commandString}");
+                            logMessage("[{$this->name}:{$herikaName}] Generated command from buffer JSON: {$commandString}");
                             if (ob_get_level()) {
                                 @ob_flush();
                                 @flush();
                             }
                         } else {
-                            error_log("[{$this->name}:{$herikaName}] Command already sent (skipped from buffer JSON): {$character}|command|{$parsedResponse['action']}@{$target}");
+                            logMessage("[{$this->name}:{$herikaName}] Command already sent (skipped from buffer JSON): {$character}|command|{$parsedResponse['action']}@{$target}");
                         }
                     } else {
-                        error_log("[{$this->name}:{$herikaName}] No action field found in parsed JSON from buffer.");
+                        logMessage("[{$this->name}:{$herikaName}] No action field found in parsed JSON from buffer.");
                     }
                 } else {
-                    error_log("[{$this->name}:{$herikaName}] Failed to parse JSON from buffer: " . json_last_error_msg() . " Buffer excerpt: " . substr($possibleJson, 0, 150));
+                    logMessage("[{$this->name}:{$herikaName}] Failed to parse JSON from buffer: " . json_last_error_msg() . " Buffer excerpt: " . substr($possibleJson, 0, 150));
                 }
             } else {
-                error_log("[{$this->name}:{$herikaName}] No valid JSON boundaries found in buffer: " . substr($this->_buffer, 0, 150));
+                logMessage("[{$this->name}:{$herikaName}] No valid JSON boundaries found in buffer: " . substr($this->_buffer, 0, 150));
             }
         } else {
-            error_log("[{$this->name}:{$herikaName}] Buffer is empty, no JSON to parse for actions.");
+            logMessage("[{$this->name}:{$herikaName}] Buffer is empty, no JSON to parse for actions.");
         }
 
         // Also process tool calls if any (from Anthropic or OpenAI format) as a fallback
@@ -1129,7 +1145,7 @@ class openrouterjsonanthropic
                     }
                 }
             } catch (Exception $e) {
-                error_log("[{$this->name}:processActions] Error processing Anthropic tools: " . $e->getMessage());
+                logMessage("[{$this->name}:processActions] Error processing Anthropic tools: " . $e->getMessage());
             }
 
             try {
@@ -1142,7 +1158,7 @@ class openrouterjsonanthropic
                     }
                 }
             } catch (Exception $e) {
-                error_log("[{$this->name}:processActions] Error processing OpenAI tools: " . $e->getMessage());
+                logMessage("[{$this->name}:processActions] Error processing OpenAI tools: " . $e->getMessage());
             }
         }
 
@@ -1150,9 +1166,9 @@ class openrouterjsonanthropic
 
         // Log the final command buffer for debugging
         if (!empty($this->_commandBuffer)) {
-            error_log("[{$this->name}:{$herikaName}] Final Command Buffer: " . implode(", ", $this->_commandBuffer));
+            logMessage("[{$this->name}:{$herikaName}] Final Command Buffer: " . implode(", ", $this->_commandBuffer));
         } else {
-            error_log("[{$this->name}:{$herikaName}] No commands generated in this cycle.");
+            logMessage("[{$this->name}:{$herikaName}] No commands generated in this cycle.");
         }
 
         return empty($this->_commandBuffer) ? array() : $this->_commandBuffer;
