@@ -2,6 +2,152 @@
 
 $enginePath = dirname((__FILE__)) . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR;
 
+
+function logMessage(string|array $message, ?string $context = null, string $level = 'INFO', string $logFile = './application.log', ): bool
+{
+    // Get the current timestamp in a readable format
+    $timestamp = date('Y-m-d H:i:s');
+
+    $formattedMessage = '';
+
+    // If the message is an array, convert it to a JSON string
+    if (is_array($message)) {
+        // Use JSON_PRETTY_PRINT for better readability in the log file,
+        // or remove it for a single-line compact JSON string.
+        $jsonMessage = json_encode($message, JSON_PRETTY_PRINT);
+        if ($jsonMessage === false) {
+            // Fallback if json_encode fails (e.g., circular reference)
+            $jsonMessage = "Failed to encode array to JSON. Original: " . print_r($message, true);
+        }
+
+        // If a context string is provided, prepend it to the formatted message
+        if ($context !== null && $context !== '') {
+            $formattedMessage = "{$context} \n {$jsonMessage}";
+        } else {
+            $formattedMessage = $jsonMessage;
+        }
+    } else {
+        // If it's not an array, use the message as is
+        $formattedMessage = (string) $message; // Ensure it's treated as a string
+    }
+
+    // Format the log entry: [YYYY-MM-DD HH:MM:SS] LEVEL: Your message
+    $logEntry = "[{$timestamp}] {$level}: {$formattedMessage}\n";
+
+    // Attempt to write the log entry to the file
+    // FILE_APPEND ensures the content is added to the end of the file.
+    // LOCK_EX acquires an exclusive lock, preventing race conditions during concurrent writes.
+    $result = file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+
+    // Check if the write operation was successful
+    if ($result === false) {
+        // If writing failed, log an error to PHP's default error log
+        // Note: Using error_log for internal errors to avoid recursion if logMessage fails
+        error_log("Failed to write to log file: {$logFile}. Original message: " . (is_array($message) ? json_encode($message) : $message));
+        return false;
+    }
+
+    return true;
+}
+
+function manageCharacterEventList($newList, $filename = 'conversation_list.json', $maxLength = 93, $maxAge = 3600) {
+    logMessage("Max length of cached event history: $maxLength");
+    $filename = __DIR__ . "/../temp/" . $filename;
+    // Load existing list from file
+    $existingList = [];
+    if (file_exists($filename)) {
+        $fileContent = file_get_contents($filename);
+        if ($fileContent !== false) {
+            $decoded = json_decode($fileContent, true);
+            if ($decoded !== null) {
+                $existingList = $decoded;
+            }
+        }
+
+        // Check if file is older than maxAge (default 1 hour)
+        $fileModTime = filemtime($filename);
+        $currentTime = time();
+        $fileAge = $currentTime - $fileModTime;
+         if ($fileAge >= $maxAge) {
+            logMessage("cleared cache because it is older than one hour");
+            $existingList = [];
+        }
+    }
+
+     // Check if max length exceeded
+    if (count($existingList) >= $maxLength) {
+        if (file_exists($filename)) {
+            unlink($filename);
+        }
+        logMessage("cleared cached dialogue");
+        $existingList = []; // Clear the list
+    }
+
+    
+    // Find new elements that don't exist in the original list
+    $newElements = [];
+    
+    foreach ($newList as $newItem) {
+        $found = false;
+        foreach ($existingList as $existingItem) {
+            if (arraysEqual($newItem, $existingItem)) {
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            $newElements[] = $newItem;
+        }
+    }
+    
+    // Add new elements to existing list
+
+    $updatedList = array_merge($existingList, $newElements);
+
+     // Remove neighboring duplicates
+    $duplicatesRemoved = 0;
+    $updatedList = removeNeighboringDuplicates($updatedList, $duplicatesRemoved);
+    logMessage("Duplicates removed: $duplicatesRemoved");
+
+    $updatedListCount = count($updatedList);
+    
+    // Save updated list back to file
+    file_put_contents($filename, json_encode($updatedList, JSON_PRETTY_PRINT));
+    logMessage("Current length of cached event history: $updatedListCount");
+    return [
+        'updated_list' => $updatedList,
+        'existing_list' => $existingList,
+        'new_elements' => $newElements,
+        'duplicatesRemoved' => $duplicatesRemoved,
+        'new_count' => count($newElements)
+    ];
+}
+
+function removeNeighboringDuplicates($array, &$duplicatesRemoved) {
+    if (empty($array)) {
+        return $array;
+    }
+    
+    $result = [$array[0]]; // Always keep the first element
+    $duplicatesRemoved = 0;
+    
+    for ($i = 1; $i < count($array); $i++) {
+        // Compare current element with the previous one
+        if (!arraysEqual($array[$i], $array[$i - 1])) {
+            $result[] = $array[$i];
+        } else {
+            $duplicatesRemoved++;
+        }
+    }
+    
+    return $result;
+}
+
+function arraysEqual($array1, $array2) {
+    // Convert arrays to JSON strings for comparison
+    return json_encode($array1) === json_encode($array2);
+}
+
 // --- START: Standalone Cache Helper Functions ---
 
 if (!function_exists('connector_cacheReadFromFile')) {
@@ -12,14 +158,14 @@ if (!function_exists('connector_cacheReadFromFile')) {
             return 0;
         $file = @fopen($cacheFilePath, "r");
         if (!$file) {
-            error_log("Failed to open cache file for reading: " . $fileName);
+            logMessage("Failed to open cache file for reading: " . $fileName);
             return 0;
         }
         $timestampLine = trim(@fgets($file));
         if ($timestampLine === false || !is_numeric($timestampLine) || $timestampLine <= 0) {
             fclose($file);
             @unlink($cacheFilePath);
-            error_log("Invalid or missing timestamp in cache file: " . $fileName);
+            logMessage("Invalid or missing timestamp in cache file: " . $fileName);
             return 0;
         }
         $timestamp = (int) $timestampLine;
@@ -31,7 +177,7 @@ if (!function_exists('connector_cacheReadFromFile')) {
             if ($lastIndexLine === false || !is_numeric($lastIndexLine) || $lastIndexLine < -1) {
                 fclose($file);
                 @unlink($cacheFilePath);
-                error_log("Invalid or missing lastIndex in cache file: " . $fileName);
+                logMessage("Invalid or missing lastIndex in cache file: " . $fileName);
                 return 0;
             }
             $lastIndex = (int) $lastIndexLine;
@@ -39,7 +185,7 @@ if (!function_exists('connector_cacheReadFromFile')) {
             if ($lastHashLine === false || (empty($lastHashLine) && $lastIndex > -1)) {
                 fclose($file);
                 @unlink($cacheFilePath);
-                error_log("Invalid or missing lastHash in cache file: " . $fileName);
+                logMessage("Invalid or missing lastHash in cache file: " . $fileName);
                 return 0;
             }
             $lastHash = $lastHashLine;
@@ -69,7 +215,7 @@ if (!function_exists("connector_cacheWriteToFile")) {
         $folderPath = dirname($filePath);
         if (!is_dir($folderPath)) {
             if (!@mkdir($folderPath, 0755, true)) {
-                error_log("Failed to create cache directory: " . $folderPath);
+                logMessage("Failed to create cache directory: " . $folderPath);
                 return false;
             }
         }
@@ -81,92 +227,52 @@ if (!function_exists("connector_cacheWriteToFile")) {
         $fileContent .= $content;
         $bytesWritten = @file_put_contents($filePath, $fileContent, LOCK_EX);
         if ($bytesWritten === false) {
-            error_log("Failed to write cache file: " . $filePath);
+            logMessage("Failed to write cache file: " . $filePath);
         }
         return ($bytesWritten !== false);
     }
 }
 
-// New function to build combined dialogue content
-if (!function_exists('connector_buildCombinedDialogue')) {
-    function connector_buildCombinedDialogue($contextData, $numMessagesToKeepUncached, $connectorName, $herikaName)
-    {
-        $n_ctxsize = count($contextData);
-        $cacheThresholdIndex = max(0, $n_ctxsize - $numMessagesToKeepUncached);
-        $lastAggregatedIndex = $cacheThresholdIndex - 1;
-        $combinedContentToCache = "";
-        $lastAggregatedElement = null;
-        $lastAggregatedContentForHash = "";
-
-        for ($n = 0; $n <= $lastAggregatedIndex; $n++) {
-            if (!isset($contextData[$n]))
-                continue;
-            $element = $contextData[$n];
-            if (isset($element["role"]) && $element["role"] != "system") {
-                $contentString = '';
-                if (is_string($element['content'])) {
-                    $contentString = $element['content'];
-                } elseif (is_array($element['content']) && isset($element['content'][0]['type']) && $element['content'][0]['type'] === 'text' && isset($element['content'][0]['text'])) {
-                    $contentString = $element['content'][0]['text'];
-                }
-                $trimmedContent = trim($contentString);
-                if (!empty($trimmedContent)) {
-                    $sequencePrefix = "Seq[" . ($n + 1) . "]: ";
-                    $lineContent = $sequencePrefix . $element['role'] . ": " . $trimmedContent . "\n";
-                    $combinedContentToCache .= $lineContent;
-                    $lastAggregatedElement = $element;
-                    $lastAggregatedContentForHash = $trimmedContent;
-                }
-            }
-        }
-
-        $finalLastAggregatedHash = ($lastAggregatedElement !== null) ? md5($lastAggregatedContentForHash) : '';
-
-        return array(
-            'content' => $combinedContentToCache,
-            'lastAggregatedIndex' => $lastAggregatedIndex,
-            'lastAggregatedHash' => $finalLastAggregatedHash,
-            'startIndexForIndividual' => $cacheThresholdIndex
-        );
-    }
-}
 // --- END: Standalone Cache Helper Functions ---
 
-function logMessage(string|array $message, string $level = 'INFO', string $logFile = './application.log'): bool
-{
-    // Get the current timestamp in a readable format
-    $timestamp = date('Y-m-d H:i:s');
-
-    // If the message is an array, convert it to a JSON string
-    if (is_array($message)) {
-        // Use JSON_PRETTY_PRINT for better readability in the log file,
-        // or remove it for a single-line compact JSON string.
-        $formattedMessage = json_encode($message, JSON_PRETTY_PRINT);
-        if ($formattedMessage === false) {
-            // Fallback if json_encode fails (e.g., circular reference)
-            $formattedMessage = "Failed to encode array to JSON. Original: " . print_r($message, true);
+function extractJson($text) {
+    // Find the starting position of JSON
+    $start = strpos($text, '{');
+    if ($start === false) {
+        return $text;
+    }
+    
+    $braceCount = 0;
+    $inString = false;
+    $escaped = false;
+    
+    for ($i = $start; $i < strlen($text); $i++) {
+        $char = $text[$i];
+        
+        if (!$inString) {
+            if ($char === '{') {
+                $braceCount++;
+            } elseif ($char === '}') {
+                $braceCount--;
+                if ($braceCount === 0) {
+                    // Found the end of JSON
+                    return substr($text, $start, $i - $start + 1);
+                }
+            } elseif ($char === '"') {
+                $inString = true;
+            }
+        } else {
+            if ($escaped) {
+                $escaped = false;
+            } elseif ($char === '\\') {
+                $escaped = true;
+            } elseif ($char === '"') {
+                $inString = false;
+            }
         }
-    } else {
-        // If it's not an array, use the message as is
-        $formattedMessage = (string) $message; // Ensure it's treated as a string
     }
-
-    // Format the log entry: [YYYY-MM-DD HH:MM:SS] LEVEL: Your message
-    $logEntry = "[{$timestamp}] {$level}: {$formattedMessage}\n";
-
-    // Attempt to write the log entry to the file
-    // FILE_APPEND ensures the content is added to the end of the file.
-    // LOCK_EX acquires an exclusive lock, preventing race conditions during concurrent writes.
-    $result = file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
-
-    // Check if the write operation was successful
-    if ($result === false) {
-        // If writing failed, log an error to PHP's default error log
-        error_log("Failed to write to log file: {$logFile}. Original message: " . (is_array($message) ? json_encode($message) : $message));
-        return false;
-    }
-
-    return true;
+    
+    return $text;
 }
 
 function extract_specific_section(&$source, $sectionHeader) {
@@ -250,11 +356,13 @@ class openrouterjsonanthropic
     {
         // --- Setup and Logging ---
         require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."functions".DIRECTORY_SEPARATOR."json_response.php");
-
+        logMessage("Input Context");
+        logMessage($contextData);
         $herikaNameForLog = isset($GLOBALS["HERIKA_NAME"]) ? $GLOBALS["HERIKA_NAME"] : 'default_herika';
         $herikaName = $herikaNameForLog;
-        $incoming_ctx_size = count($contextData);
-        error_log("[{$this->name}:{$herikaName}] OPEN START: Received contextData with {$incoming_ctx_size} elements.");
+        $n_ctxsize = count($contextData);
+
+        logMessage("[{$this->name}:{$herikaName}] OPEN START: Received contextData with {$n_ctxsize} elements.");
 
         // --- Config ---
         $url = isset($GLOBALS["CONNECTOR"][$this->name]["url"]) ? $GLOBALS["CONNECTOR"][$this->name]["url"] : '';
@@ -279,60 +387,19 @@ class openrouterjsonanthropic
             $numMessagesToKeepUncached = (int) $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"];
         }
         $logPrefix = "[{$this->name}:{$herikaName}]";
-        error_log("{$logPrefix} Cache Config: SysStrategy={$sysCacheStrategy}, SysTTL={$sysCacheTTL}, DialogueTTL={$dialogueCacheTTL}, UncachedCount={$numMessagesToKeepUncached}");
+        logMessage("{$logPrefix} Cache Config: SysStrategy={$sysCacheStrategy}, SysTTL={$sysCacheTTL}, DialogueTTL={$dialogueCacheTTL}, UncachedCount={$numMessagesToKeepUncached}");
         // --- End Cache Settings Reading ---
 
-        // --- Context Preprocessing ---
-        $contextDataCopyPreCache = array();
-        $skipped_count = 0;
-        foreach ($contextData as $n => $element) {
-            if (is_array($element) && isset($element['role']) && isset($element['content'])) {
-                $contentCheck = null;
-                if (is_string($element['content'])) {
-                    $contentCheck = trim($element["content"]);
-                    if (empty($contentCheck)) {
-                        $contentCheck = null;
-                    } else {
-                        $element['content'] = $contentCheck;
-                    }
-                } elseif (is_array($element['content']) && isset($element['content'][0]['type']) && $element['content'][0]['type'] === 'text' && isset($element['content'][0]['text'])) {
-                    $contentCheck = trim($element['content'][0]['text']);
-                    if (empty($contentCheck)) {
-                        $contentCheck = null;
-                    } else {
-                        $element['content'][0]['text'] = $contentCheck;
-                    }
-                }
-                if ($contentCheck !== null) {
-                    $contextDataCopyPreCache[] = $element;
-                } else {
-                    $skipped_count++;
-                }
-            } else {
-                error_log("{$logPrefix} OPEN PREPROCESS: Skipped malformed element at index {$n}.");
-                $skipped_count++;
-            }
-        }
-        $contextDataOrig = $contextDataCopyPreCache;
-        $n_ctxsize = count($contextDataOrig);
-        error_log("{$logPrefix} OPEN PREPROCESS: Processed contextDataOrig has {$n_ctxsize} elements. Skipped {$skipped_count}.");
+        logMessage("{$logPrefix} OPEN PREPROCESS: Processed contextData has {$n_ctxsize} elements. Skipped {$skipped_count}.");
         // --- End Preprocessing ---
 
         // --- Caching Setup with 2-cache approach ---
         $cacheSystemFile = "system_cache_json_{$herikaName}.tmp";
         $cacheCombinedDialogueFile = "combined_dialogue_cache_json_{$herikaName}.tmp"; // Single file for dialogue
         $cacheSystemMessages = connector_cacheReadFromFile($cacheSystemFile, false);
-        $cacheCombinedDialogueMessages = connector_cacheReadFromFile($cacheCombinedDialogueFile, true); // Use the same format with lastIndex/hash
+//        $cacheCombinedDialogueMessages = connector_cacheReadFromFile($cacheCombinedDialogueFile, true); // Use the same format with lastIndex/hash
 
         $currentTime = time();
-        $isCombinedDialogueCacheValid = false;
-
-        // Check if combined dialogue cache is valid
-        if (is_array($cacheCombinedDialogueMessages) && isset($cacheCombinedDialogueMessages["timestamp"])) {
-            if (($currentTime - $cacheCombinedDialogueMessages["timestamp"]) <= $dialogueCacheTTL) {
-                $isCombinedDialogueCacheValid = true;
-            }
-        }
 
         // --- Build Final Message List ---
         $finalMessagesToSend = array();
@@ -359,7 +426,9 @@ class openrouterjsonanthropic
 
         $zonosTones = $GLOBALS["TTSFUNCTION"] == "zonos_gradio" ? " (Response tones are mandatory in the response)" : "";
 
-        $jsonResponseInstruction = "{$prefix}. $speechReinforcement Use ONLY this JSON object to give your answer. Do not send any other characters outside of this JSON structure$zonosTones: ".json_encode($GLOBALS["responseTemplate"]);
+        $customInstruction = "";
+
+        $jsonResponseInstruction = "{$prefix} $speechReinforcement $customInstruction Use ONLY this JSON object to give your answer. Do not send any other characters outside of this JSON structure$zonosTones: ".json_encode($GLOBALS["responseTemplate"]);
 
         // remove dynamic targets, that might be shitty when we cache them
         $availableActions = preg_replace('/\(available targets:[^\n]*/', '', $GLOBALS["COMMAND_PROMPT"]);
@@ -371,7 +440,7 @@ class openrouterjsonanthropic
 
         $dynamicEnvironment = "";
 
-        foreach ($contextDataOrig as $n => $element) {
+        foreach ($contextData as $n => $element) {
             if (isset($element["role"]) && $element["role"] == "system") {
                 $systemContentString = '';
                 if (is_string($element['content'])) {
@@ -391,20 +460,20 @@ class openrouterjsonanthropic
                         if ($sysCacheStrategy === 'ttl') {
                             if (($currentTime - $cacheSystemMessages['timestamp']) <= $sysCacheTTL) {
                                 $isSystemCacheValid = true;
-                                error_log("{$logPrefix} System cache valid based on TTL (Strategy B).");
+                                logMessage("{$logPrefix} System cache valid based on TTL (Strategy B).");
                             } else {
-                                error_log("{$logPrefix} System cache expired based on TTL (Strategy B).");
+                                logMessage("{$logPrefix} System cache expired based on TTL (Strategy B).");
                             }
                         } else {
                             if (isset($cacheSystemMessages['content']) && $cacheSystemMessages['content'] === $systemContentCurrent) {
                                 $isSystemCacheValid = true;
-                                error_log("{$logPrefix} System cache valid based on content match (Strategy A).");
+                                logMessage("{$logPrefix} System cache valid based on content match (Strategy A).");
                             } else {
-                                error_log("{$logPrefix} System cache invalid based on content mismatch (Strategy A).");
+                                logMessage("{$logPrefix} System cache invalid based on content mismatch (Strategy A).");
                             }
                         }
                     } else {
-                        error_log("{$logPrefix} System cache miss (file invalid or missing).");
+                        logMessage("{$logPrefix} System cache miss (file invalid or missing).");
                     }
 
                     // extract dynamic relevant parts
@@ -439,163 +508,19 @@ class openrouterjsonanthropic
 
         if ($systemContentForCacheFile !== null) {
             connector_cacheWriteToFile($cacheSystemFile, $systemContentForCacheFile, $currentTime, null, null);
-            error_log("{$logPrefix} System cache updated.");
+            logMessage("{$logPrefix} System cache updated.");
         }
         // --- End System Processing ---
-        $dynamicEnvironment .= "\nNearby available targets, beings or persons: {$characters})\n";
+        //$dynamicEnvironment .= "\nNearby available targets, beings or persons: {$characters})\n";
+        logMessage("nearby character: $characters");
         // --- Step 2: Process Combined Dialogue History ---
-        $needsRebuild = false;
-        $startIndexForAddingIndividualMessages = 0;
-        $hitDebugInfo = array('status' => '', 'reason' => '', 'lastCachedIndex' => 'N/A', 'lastCachedHash' => 'N/A', 'foundIndex' => -1, 'addedCount' => 0);
 
-        if (!$isCombinedDialogueCacheValid) {
-            error_log("--------==----- {$logPrefix} Combined dialogue cache miss/expired/invalid. Triggering rebuild.");
-            $hitDebugInfo['status'] = 'MISS';
-            $hitDebugInfo['reason'] = 'Expired/Invalid';
-            $needsRebuild = true;
-        } else {
-            error_log("--------=----- {$logPrefix} Combined dialogue cache hit detected. Validating anchor...");
-            $lastCachedIndex = isset($cacheCombinedDialogueMessages['lastIndex']) ? $cacheCombinedDialogueMessages['lastIndex'] : -1;
-            $lastCachedHash = isset($cacheCombinedDialogueMessages['lastHash']) ? $cacheCombinedDialogueMessages['lastHash'] : null;
-            $hitDebugInfo['lastCachedIndex'] = $lastCachedIndex;
-            $hitDebugInfo['lastCachedHash'] = (!empty($lastCachedHash)) ? $lastCachedHash : 'N/A'; //PHP 5 empty check
-
-            if (isset($cacheCombinedDialogueMessages["content"]) && !empty(rtrim($cacheCombinedDialogueMessages["content"], "\n"))) {
-                $finalMessagesToSend[] = array(
-                    'role' => "user",
-                    "content" => array(
-                        array(
-                            "type" => "text",
-                            "text" => rtrim($cacheCombinedDialogueMessages["content"], "\n"),
-                            "cache_control" => $cacheControlType
-                        )
-                    )
-                );
-            }
-
-            $foundMatchIndex = -1;
-            if ($lastCachedIndex > -1 && !empty($lastCachedHash)) { // PHP 5 empty check
-                for ($idx = 0; $idx < $n_ctxsize; $idx++) {
-                    if (!isset($contextDataOrig[$idx]))
-                        continue;
-                    $element = $contextDataOrig[$idx];
-                    if (isset($element["role"]) && ($element["role"] == "user" || $element["role"] == "assistant")) {
-                        $contentString = '';
-                        if (is_string($element['content'])) {
-                            $contentString = $element['content'];
-                        } elseif (
-                            is_array($element['content']) && isset($element['content'][0]['type']) &&
-                            $element['content'][0]['type'] === 'text' && isset($element['content'][0]['text'])
-                        ) {
-                            $contentString = $element['content'][0]['text'];
-                        }
-
-                        if (md5(trim($contentString)) === $lastCachedHash) {
-                            $foundMatchIndex = $idx;
-                            error_log("{$logPrefix} Cache Anchor FOUND: Index {$foundMatchIndex} matches hash '{$lastCachedHash}'.");
-                            $hitDebugInfo['status'] = 'HIT';
-                            $hitDebugInfo['reason'] = 'Anchor Found';
-                            $hitDebugInfo['foundIndex'] = $foundMatchIndex;
-                            break;
-                        }
-                    }
-                }
-
-                if ($foundMatchIndex == -1) {
-                    error_log("CRITICAL: Cache Anchor Hash '{$lastCachedHash}' (from file index {$lastCachedIndex}) NOT FOUND... Forcing REBUILD.");
-                    $hitDebugInfo['status'] = 'MISS';
-                    $hitDebugInfo['reason'] = 'Anchor Hash Not Found - Forced Rebuild';
-                    $needsRebuild = true;
-                    // Keep only system messages
-                    $systemMessagesBackup = array();
-                    foreach ($finalMessagesToSend as $msg) {
-                        if (isset($msg['role']) && $msg['role'] === 'system') {
-                            $systemMessagesBackup[] = $msg;
-                        }
-                    }
-                    $finalMessagesToSend = $systemMessagesBackup;
-                } else {
-                    $startIndexForAddingIndividualMessages = $foundMatchIndex + 1;
-                }
-            } elseif ($lastCachedIndex == -1) {
-                error_log("{$logPrefix} Cache hit on empty cache (index {$lastCachedIndex}). Proceeding without anchor search.");
-                $hitDebugInfo['status'] = 'HIT';
-                $hitDebugInfo['reason'] = 'Cache Empty (Index -1)';
-                $startIndexForAddingIndividualMessages = 0;
-            } else {
-                error_log("WARNING: Cache inconsistency detected (Index {$lastCachedIndex}, Hash '{$lastCachedHash}'). Forcing REBUILD.");
-                $hitDebugInfo['status'] = 'MISS';
-                $hitDebugInfo['reason'] = 'Cache Inconsistency - Forced Rebuild';
-                $needsRebuild = true;
-                // Keep only system messages
-                $systemMessagesBackup = array();
-                foreach ($finalMessagesToSend as $msg) {
-                    if (isset($msg['role']) && $msg['role'] === 'system') {
-                        $systemMessagesBackup[] = $msg;
-                    }
-                }
-                $finalMessagesToSend = $systemMessagesBackup;
-            }
-        }
-
-        if ($needsRebuild) {
-            // Build combined dialogue cache using the helper function
-            $combinedDialogueResult = connector_buildCombinedDialogue($contextDataOrig, $numMessagesToKeepUncached, $this->name, $herikaName);
-
-            // Keep system messages from before
-            $systemMessagesBackup = array();
-            foreach ($finalMessagesToSend as $msg) {
-                if (isset($msg['role']) && $msg['role'] === 'system') {
-                    $systemMessagesBackup[] = $msg;
-                }
-            }
-            $finalMessagesToSend = $systemMessagesBackup;
-
-            // Add the combined content as a user message
-            if (isset($combinedDialogueResult['content']) && !empty(rtrim($combinedDialogueResult['content'], "\n"))) {
-                $finalMessagesToSend[] = array(
-                    'role' => 'user',
-                    'content' => array(
-                        array(
-                            'type' => 'text',
-                            'text' => rtrim($combinedDialogueResult['content'], "\n"),
-                            'cache_control' => $cacheControlType
-                        )
-                    )
-                );
-            }
-
-            // Write the combined cache file
-            $writeResult = connector_cacheWriteToFile(
-                $cacheCombinedDialogueFile,
-                $combinedDialogueResult['content'],
-                $currentTime,
-                $combinedDialogueResult['lastAggregatedIndex'],
-                $combinedDialogueResult['lastAggregatedHash']
-            );
-
-            if ($writeResult) {
-                error_log("[{$this->name}:{$herikaName}] Cache Rebuild SUCCESS: Wrote index {$combinedDialogueResult['lastAggregatedIndex']}, hash '{$combinedDialogueResult['lastAggregatedHash']}'.");
-            } else {
-                error_log("[{$this->name}:{$herikaName}] Cache Rebuild FAIL: Failed writing cache file.");
-            }
-
-            $startIndexForAddingIndividualMessages = isset($combinedDialogueResult['startIndexForIndividual']) ?
-                $combinedDialogueResult['startIndexForIndividual'] : 0;
-            $hitDebugInfo['lastCachedIndex'] = isset($combinedDialogueResult['lastAggregatedIndex']) ?
-                $combinedDialogueResult['lastAggregatedIndex'] : -1;
-            $rebuiltHash = isset($combinedDialogueResult['lastAggregatedHash']) ?
-                $combinedDialogueResult['lastAggregatedHash'] : null;
-            $hitDebugInfo['lastCachedHash'] = (!empty($rebuiltHash)) ? $rebuiltHash : 'N/A'; // PHP 5 empty check
-        }
-
-        // Add individual messages after the cached portion
+        // Add individual messages
         $contentTextToSend = [];
-        error_log("{$logPrefix} Building final payload: Adding individual messages from original context index {$startIndexForAddingIndividualMessages} onwards.");
-        for ($sendIdx = $startIndexForAddingIndividualMessages; $sendIdx < $n_ctxsize; $sendIdx++) {
-            if (!isset($contextDataOrig[$sendIdx]))
+        for ($sendIdx = 0; $sendIdx < $n_ctxsize; $sendIdx++) {
+            if (!isset($contextData[$sendIdx]))
                 continue;
-            $element = $contextDataOrig[$sendIdx];
+            $element = $contextData[$sendIdx];
             if (isset($element["role"]) && $element["role"] != "system") {
                 $contentString = '';
                 if (is_string($element['content'])) {
@@ -620,25 +545,35 @@ class openrouterjsonanthropic
             }
         }
 
-        //array_pop($contentTextToSend);
+        // remove unnecessary stuff for caching
+        $contentTextToSend = array_slice($contentTextToSend, 4);
+        
+        // remove instruction to add back later
+        $instruction = array_pop($contentTextToSend);
 
+        //logMessage($contentTextToSend, "current context list");
+        // do caching stuff
+        $completeEventList = manageCharacterEventList($contentTextToSend,$cacheCombinedDialogueFile, $n_ctxsize * 4);        
+ 
+        logMessage( "New elements added to cache: {$completeEventList['new_count']}");
+        
+        $completeEventList = $completeEventList['updated_list'];
+        $completeEventList[] = $instruction;
         // Get the index of the last element
-        $lastIndex = count($contentTextToSend) - 3;
+        $lastIndex = count($completeEventList) - 3;
 
         // Make sure the array is not empty before trying to access the last element
         if ($lastIndex >= 0) {
             // Add a new field to the last entry
             // Let's say you want to add a field called "speaker"
-            $contentTextToSend[$lastIndex]["cache_control"] = $cacheControlType;
+            $completeEventList[$lastIndex]["cache_control"] = $cacheControlType;
         }
 
-        array_splice($contentTextToSend, count($contentTextToSend)-2, 0, [array('type' => 'text', 'text' => $dynamicEnvironment)]);
+        array_splice($completeEventList, count($completeEventList)-2, 0, [array('type' => 'text', 'text' => $dynamicEnvironment)]);
 
-        $finalMessagesToSend[] = array('role' => 'user', 'content' => $contentTextToSend);
+        $finalMessagesToSend[] = array('role' => 'user', 'content' => $completeEventList);
 
         // --- End Dialogue Processing ---
-
-
 
         // Check if there is assistant history to decide whether to add examples
         $hasAssistantHistory = false;
@@ -651,22 +586,10 @@ class openrouterjsonanthropic
 
         // If there is no assistant history, add example interaction
         if (!$hasAssistantHistory) {
-            error_log("{$logPrefix} Added example interaction since no assistant history was found.");
+            logMessage("{$logPrefix} Added example interaction since no assistant history was found.");
         }
 
-        //$finalMessagesToSend[] = array('role' => 'user', 'content' => array(array('type' => 'text', 'text' => $dynamicEnvironment)));
-
-        /*$finalMessagesToSend[] = array(
-            'role' => 'system',
-            'content' => array(
-                array(
-                    'type' => 'text',
-                    'text' => $jsonResponseInstruction,
-                    'cache_control' => $cacheControlType
-                )
-            )
-        );*/
-        error_log("{$logPrefix} Added JSON response instruction as final user message.");
+        logMessage("{$logPrefix} Added JSON response instruction as final user message.");
         
         // Payload Construction
         $data = array(
@@ -773,13 +696,13 @@ class openrouterjsonanthropic
             );
             @file_put_contents(__DIR__ . "/../log/context_sent_to_llm.log", $logEntry, FILE_APPEND | LOCK_EX);
         } catch (Exception $e) {
-            error_log("{$logPrefix} Context Log Err: " . $e->getMessage());
+            logMessage("{$logPrefix} Context Log Err: " . $e->getMessage());
         }
 
         // API Request Preparation
         $apiKey = isset($GLOBALS["CONNECTOR"][$this->name]["API_KEY"]) ? $GLOBALS["CONNECTOR"][$this->name]["API_KEY"] : '';
         if (empty($apiKey)) {
-            error_log("{$logPrefix} API Key missing!");
+            logMessage("{$logPrefix} API Key missing!");
             return null;
         }
         $headers = array(
@@ -813,25 +736,18 @@ class openrouterjsonanthropic
         try {
             $this->primary_handler = $this->send($url, $context);
         } catch (Exception $e) {
-            error_log("fopen Exception [{$this->name}:{$herikaName}]: " . $e->getMessage());
+            logMessage("fopen Exception [{$this->name}:{$herikaName}]: " . $e->getMessage());
             return null;
         }
 
         if (!$this->primary_handler) {
             $error = error_get_last();
             $errMsg = isset($error['message']) ? $error['message'] : 'fopen returned false';
-            error_log("Stream Open Fail [{$this->name}:{$herikaName}]: {$errMsg}");
+            logMessage("Stream Open Fail [{$this->name}:{$herikaName}]: {$errMsg}");
             if (isset($http_response_header) && is_array($http_response_header)) {
-                error_log("HTTP Headers on fail: " . implode("\n", $http_response_header));
+                logMessage("HTTP Headers on fail: " . implode("\n", $http_response_header));
             }
             return null;
-        }
-
-        try {
-            $logStartMsg = "\n== " . date(DATE_ATOM) . " [{$this->name}:{$herikaName}] STREAM START\n\n";
-            @file_put_contents(__DIR__ . "/../log/output_from_llm.log", $logStartMsg, FILE_APPEND | LOCK_EX);
-        } catch (Exception $e) {
-            error_log("{$logPrefix} Output Log Start Err: " . $e->getMessage());
         }
 
         return true;
@@ -859,7 +775,7 @@ class openrouterjsonanthropic
             } else {
                 $error = error_get_last();
                 $errMsg = isset($error['message']) ? $error['message'] : 'fgets error';
-                error_log("Read Err [{$this->name}:{$herikaName}]: {$errMsg}");
+                logMessage("Read Err [{$this->name}:{$herikaName}]: {$errMsg}");
                 $this->_rawbuffer .= "\nRead Err: {$errMsg}\n";
                 $this->_forcedClose = true;
                 return -1;
@@ -916,13 +832,13 @@ class openrouterjsonanthropic
                             // Handle stop signals
                             case 'message_delta':
                                 if (isset($data['delta']['stop_reason']) && $data['delta']['stop_reason'] !== null) {
-                                    error_log("[{$this->name}:{$herikaName}] Stop (delta): " . $data['delta']['stop_reason']);
+                                    logMessage("[{$this->name}:{$herikaName}] Stop (delta): " . $data['delta']['stop_reason']);
                                     $this->_forcedClose = true;
                                 }
                                 break;
 
                             case 'message_stop':
-                                error_log("[{$this->name}:{$herikaName}] Stop (message_stop). Usage:" .
+                                logMessage("[{$this->name}:{$herikaName}] Stop (message_stop). Usage:" .
                                     (isset($data['message']['usage']) ? json_encode($data['message']['usage']) : 'N/A'));
 
                                 // Log cache efficiency metrics if available
@@ -951,7 +867,7 @@ class openrouterjsonanthropic
 
                             case 'error':
                                 $eM = print_r((isset($data['error']) ? $data['error'] : $data), true);
-                                error_log("Stream Err (Anthropic): {$eM}");
+                                logMessage("Stream Err (Anthropic): {$eM}");
                                 $this->_rawbuffer .= "\nErr (Anthropic):{$eM}\n";
                                 $this->_forcedClose = true;
                                 return -1;
@@ -961,7 +877,7 @@ class openrouterjsonanthropic
                                 break;
 
                             default:
-                                error_log("[{$this->name}:{$herikaName}] Unhandled Anthropic Type: " . $data['type']);
+                                logMessage("[{$this->name}:{$herikaName}] Unhandled Anthropic Type: " . $data['type']);
                                 break;
                         }
                     } elseif (isset($data["choices"][0]["delta"])) { // OpenAI Format
@@ -978,30 +894,30 @@ class openrouterjsonanthropic
 
                         // Handle OpenAI finish_reason
                         if (isset($data["choices"][0]["finish_reason"]) && $data["choices"][0]["finish_reason"] !== null) {
-                            error_log("[{$this->name}:{$herikaName}] Stop (choice): " . $data["choices"][0]["finish_reason"]);
+                            logMessage("[{$this->name}:{$herikaName}] Stop (choice): " . $data["choices"][0]["finish_reason"]);
                             $this->_forcedClose = true;
                         }
                     } elseif (isset($data['error'])) { // Generic Error
                         $eM = print_r($data['error'], true);
-                        error_log("Stream Err (Generic): {$eM}");
+                        logMessage("Stream Err (Generic): {$eM}");
                         $this->_rawbuffer .= "\nErr (Generic):{$eM}\n";
                         $this->_forcedClose = true;
                         return -1;
                     }
                 } else {
-                    error_log("JSON Decode Err [{$this->name}:{$herikaName}]: " . json_last_error_msg() . " Data: " . substr($jsonData, 0, 150) . "...");
+                    logMessage("JSON Decode Err [{$this->name}:{$herikaName}]: " . json_last_error_msg() . " Data: " . substr($jsonData, 0, 150) . "...");
                 }
             }
         } elseif (trim($line) === "event: message_stop") {
-            error_log("[{$this->name}:{$herikaName}] Explicit stream end event received.");
+            logMessage("[{$this->name}:{$herikaName}] Explicit stream end event received.");
             $this->_forcedClose = true;
         } elseif (!empty(trim($line))) {
             // Log unexpected non-SSE line
-            error_log("Unexpected non-SSE line [{$this->name}:{$herikaName}]: " . substr(trim($line), 0, 150) . "...");
+            logMessage("Unexpected non-SSE line [{$this->name}:{$herikaName}]: " . substr(trim($line), 0, 150) . "...");
             $errorData = @json_decode(trim($line), true);
             if (json_last_error() === JSON_ERROR_NONE && is_array($errorData) && isset($errorData['error'])) {
                 $eM = print_r($errorData['error'], true);
-                error_log("Non-stream Err: {$eM}");
+                logMessage("Non-stream Err: {$eM}");
                 $this->_rawbuffer .= "\nNon-stream Err:{$eM}\n";
                 $this->_forcedClose = true;
                 return -1;
@@ -1011,19 +927,16 @@ class openrouterjsonanthropic
         // Return Empty or Minimal Content: Avoid returning full JSON to prevent duplication in output
         // Extract message snippet if possible for real-time display
         if (!empty($buffer)) {
-            $tempJson = json_decode($this->_buffer, true);
+            $extracted_json_or_text = extractJson($this->_buffer);
+            $tempJson = json_decode($extracted_json_or_text, true);
             if (json_last_error() === JSON_ERROR_NONE && isset($tempJson['message']) && !empty($tempJson['message'])) {
                 $GLOBALS["SCRIPTLINE_ANIMATION"]=GetAnimationHex($tempJson["mood"]);
                 $GLOBALS["SCRIPTLINE_EXPRESSION"]=GetExpression($tempJson["mood"]);
-                logMessage("before listener check");
                 if (isset($tempJson["listener"])) {
-                    logMessage("in listener check");
                     if (isset($tempJson["action"])&& ($tempJson["action"]=="Talk")&& lazyEmpty($tempJson["listener"]) && !lazyEmpty($tempJson["target"])) {
-                        logMessage("in target check");
                         $GLOBALS["SCRIPTLINE_LISTENER"]=$tempJson["target"];
                     }
                     else {
-                        logMessage("in non target check");
                         $GLOBALS["SCRIPTLINE_LISTENER"]=$tempJson["listener"];
                     }
                 }
@@ -1053,8 +966,7 @@ class openrouterjsonanthropic
                 implode("\n", $this->_jsonResponsesEncoded) : "<no JSON responses>";
 
             $logContent = sprintf(
-                "Raw Stream Data:\n%s\n\nProcessed Text:\n%s\n\nJSON Responses:\n%s\n\n[%s] [%s:%s] END STREAM\n==\n",
-                $raw,
+                "Processed Text:\n%s\n\nJSON Responses:\n%s\n\n[%s] [%s:%s] END STREAM\n==\n",
                 $proc,
                 $jsonResponses,
                 date(DATE_ATOM),
@@ -1064,7 +976,7 @@ class openrouterjsonanthropic
 
             @file_put_contents(__DIR__ . "/../log/output_from_llm.log", $logContent, FILE_APPEND | LOCK_EX);
         } catch (Exception $e) {
-            error_log("[{$this->name}:{$herikaName}] Close Log Err: " . $e->getMessage());
+            logMessage("[{$this->name}:{$herikaName}] Close Log Err: " . $e->getMessage());
         }
 
         // Do NOT return the full buffer to avoid duplicating JSON output; commands are handled via processActions()
@@ -1276,7 +1188,7 @@ class openrouterjsonanthropic
                         $arguments = json_encode($arguments); // Convert to valid JSON string
                     }
                 } catch (Exception $e) {
-                    error_log("[{$this->name}:processOpenAIToolCalls] Error parsing arguments: " . $e->getMessage());
+                    logMessage("[{$this->name}:processOpenAIToolCalls] Error parsing arguments: " . $e->getMessage());
                 }
 
                 $toolCall['function']['arguments'] = $arguments;
@@ -1304,13 +1216,13 @@ class openrouterjsonanthropic
             $this->_commandBuffer[] = $commandString;
             $alreadysent[$commandKey] = $commandString;
 
-            error_log("[{$this->name}:processActions] Generated command: {$commandString}");
+            logMessage("[{$this->name}:processActions] Generated command: {$commandString}");
             if (ob_get_level()) {
                 @ob_flush();
                 @flush();
             }
         } else {
-            error_log("[{$this->name}:processActions] Command already sent (skipped): Herika|command|{$name}@{$parameterAsString}");
+            logMessage("[{$this->name}:processActions] Command already sent (skipped): Herika|command|{$name}@{$parameterAsString}");
         }
     }
 
