@@ -18,3 +18,4 @@ If it exists, delete everything in the folder,
 
 Additional Notes:
 These connectors are to be used with OpenRouter
+Everytime you change your System Prompt, Character Biography or Dynamic Biography, you should clear the temp folder to see the effects.
