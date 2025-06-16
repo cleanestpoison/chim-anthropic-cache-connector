@@ -29,6 +29,8 @@
   "QUEST_COMMENT_CHANCE":{"type":"select","userlvl":"basic","values":["10%","25%","50%","75%","100%"],"description":"Chance that an AI Quest Comment will happen every time a quest updates."},
   "CURRENT_TASK": {"userlvl":"basic","type":"boolean","description":"Include the current Dynamic AI Objective to the AI NPC's prompt. Disable this if the AI NPC becomes fixated on the task."},
   "RPG_COMMENTS": {"type":"selectmultiple","values":["levelup","learn_shout","learn_word","absorb_soul", "bleedout", "combat_end", "lockpick", "sleep", "keepmechecked"],"description":"Pick which comments you want a chance to trigger when one of these ingame events happens."},
+  "DETECT_MAGIC_EVENT": {"userlvl":"basic","type":"boolean","scope":"global","description":"Enable detection and logging of spellcasting events. When disabled, spellcast events will not be logged to the context log."},
+  "MAGIC_EVENT_BLACKLIST": {"userlvl":"basic","type":"longstring","scope":"global","description":"Comma-separated list of magic event names to exclude from logging (e.g. 'Administer Mixture, [BFCO-AttackSwingFX] 0.5/1.5, Healing')."},
   "HERIKA_ANIMATIONS": {"userlvl":"basic","type":"boolean","description":"Will issue animations for the NPC to play", "helpurl":"https://dwemerdynamics.hostwiki.io/en/Advanced-Features","_title":"Advanced Configuration"},
   "CORE_LANG": {"userlvl":"pro","type":"select","description":"Custom Language. The lang folder is in the CHIM Server. Leave it blank for English."},
   "LANG_LLM_XTTS": {"userlvl":"pro","type":"boolean","description":"XTTS Only! Will offer a language field to LLM, and will try match to XTTSv2 language."},
@@ -113,30 +115,11 @@
       "xreferer": {"userlvl":"wip","type":"string","description":"Stub needed header. Keep default."},
       "xtitle": {"userlvl":"wip","type":"string","description":"Stub needed header. Keep default."},
       "json_schema": {"type":"boolean","description":"Enable OpenRouter Json schema. Does not work with all models. You must set a provider that supports structured outputs. Requires ENFORCE_JSON to be true.","helpurl":"https://openrouter.ai/docs/structured-outputs#model-support"},
-      "system_cache_strategy": {
-        "_title": "Caching Options",
+      "max_dialogue_cache_context_size": {
+        "_title": "Maximum Event Cache Size",
         "userlvl": "pro",
-        "type": "select",
-        "values": [
-          "content",
-          "ttl"
-        ],
-        "description": "Controls how the '<i>local system cache</i>' is updated.<br>Each NPC profile has its own separate <i>local system cache</i>.<br><br><b>content:</b><br><code>Always checks if the <i>local system cache</i> changed before sending to Anthropic (most up-to-date, more frequent cache rewrites, potentially higher costs).</code><br><b>ttl:</b><br><code>Reuses the saved <i>local system cache</i> for a set time (potentially stale information, less frequent cache rewrites, potentially lower costs). <i>Recommended</i>.</code><br><br>The <i>local system cache</i> (depending on your settings/mods) potentially includes all of the following:<br>- <code>PROMPT_HEAD, PLAYER_BIOS, HERIKA_PERS, HERIKA_DYNAMIC</code><br>- <code>Player/NPC Disposition</code><br>- <code>Player/NPC Appearance/Cleanliness</code><br>- <code>Location (Indoors/Outdoors)</code><br>- <code>Weather</code>"
-      },
-      "system_cache_ttl": {
-        "userlvl": "pro",
-        "type": "integer",
-        "description": "<b>If strategy is 'ttl'</b>, this sets how long (in seconds) to reuse the <i>local</i> copy of the system cache before checking for updates (TTL = 'Time to Live').<br><b>Example:</b> 900 = 15 mins, 1800 = 30 mins. <i>Default: 900</i>.<br>0 = Check every time &amp; force rebuild. <b><i>Strongly Disadvised!</i></b> Adds overhead and likely increases costs.<br><br><b>Note:</b><br> <code>If using strategy <b>'ttl'</b>, it is recommended to set this value the same as the 'Dialogue Cache TTL' to minimize how often the combined cache needs rewriting.</code><br><b>Important:</b><br> <code>This <i>only</i> applies if strategy is <b>'ttl'</b> and controls the <i>local</i> copy only. Anthropic's own server cache expires after <i>5 minutes of not talking to this specific NPC</i>, regardless of this local setting.</code><br><br><br><br>"
-      },
-      "dialogue_cache_ttl": {
-        "userlvl": "pro",
-        "type": "integer",
-        "description": "How long (in seconds) to reuse <i>local</i> saved chunks of this NPC's conversation history (TTL = 'Time to Live').<br><b>Example:</b> 900 = 15 mins, 1800 = 30 mins. <i>Default: 900</i>.<br>0 = Disable cache reuse. <b><i>Strongly Disadvised!</i></b> Forces inefficient rebuilds on every request, increasing overhead &amp; costs.<br><br><b>Note:</b><br> <code>If using System Cache strategy <b>'ttl'</b>, it is recommended to set this value the same as the 'System Cache TTL' to minimize how often the combined cache needs rewriting.</code><br><b>Important:</b><br> <code>This controls the <i>local</i> copy only. Anthropic's own server cache expires after <i>5 minutes of not talking to this specific NPC</i>, regardless of this local setting.</code>"
-      },
-      "dialogue_cache_uncached_count": {
-        "userlvl": "pro",
-        "type": "integer",
-        "description": "How many <i>recent</i> conversation turns (Your message + NPC reply = 2 turns) to <i>always</i> exclude from the <i>local</i> saved dialogue chunk <i>during cache rebuilds</i>, minus 1 for final system prompt. <i><b>Do not set to 0</b></i>.<br><b>Example:</b> 5 = Keep last 4 turns fully dynamic during rebuilds.<br>1 = Save as much history as possible in the cache during rebuilds. <i>Default: 5</i>.<br><br><b>Note:</b><br> <code>When the local dialogue cache <i>is valid</i> (within its TTL), messages sent <i>after</i> the saved chunk are added individually. This means the amount of <code>'recent context after cache write'</code> grows with each turn in the conversation until the dialogue cache expires and gets rebuilt based on this setting.</code><br>"
+        "type": "number",
+        "description": "Controls how big the cached context size can get until it resets. Default value is 4 times CONTEXT_HISTORY."
       }
     },
     "openrouteranthropic": {
@@ -388,6 +371,7 @@
       "API_KEY":{"type":"apikey","scope":"global","description":"DeepL api key. Default profile only.<br/><strong>Required</strong> even when using the free version."}
     }
   },
+  "PLAYER_REESPECH":{"type":"boolean","description":"Use default diary connector AI to rewrite player speech Currently only triggers when strating speech with **","scope":"global"},
   "STTFUNCTION": {
     "type":"select","values":["whisper","localwhisper","azure","deepgram"],"description":"Speech-to-Text service options. Translates your voice to text.", 
     "_title":"Speech-to-Text Service","scope":"global"

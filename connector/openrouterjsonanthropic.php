@@ -3,11 +3,11 @@
 $enginePath = dirname((__FILE__)) . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR;
 
 
-function logMessage(string|array $message, ?string $context = null, string $level = 'INFO', string $logFile = './application.log', ): bool
+function logMessage(string|array $message, ?string $context = null, string $level = 'INFO', string $logFile = 'cache.log', ): bool
 {
     // Get the current timestamp in a readable format
     $timestamp = date('Y-m-d H:i:s');
-
+    $logFile = __DIR__ . "/../log/" . $logFile;
     $formattedMessage = '';
 
     // If the message is an array, convert it to a JSON string
@@ -48,6 +48,40 @@ function logMessage(string|array $message, ?string $context = null, string $leve
     }
 
     return true;
+}
+function writeArrayToFileWithCache($array, $filename, $cacheHours = 1) {
+    // Check if file exists and get its modification time
+    $filename = __DIR__ . "/../temp/" . $filename;
+    if (file_exists($filename)) {
+        $fileModTime = filemtime($filename);
+        $currentTime = time();
+        $cacheExpiry = $cacheHours * 3600; // Convert hours to seconds
+        
+        // If file is newer than the cache expiry time, read and return its contents
+        if (($currentTime - $fileModTime) < $cacheExpiry) {
+            $fileContents = file_get_contents($filename);
+            if ($fileContents !== false) {
+                // Attempt to unserialize the data
+                $cachedArray = unserialize($fileContents);
+                if ($cachedArray !== false) {
+                    logMessage("Return cached System entry.");
+                    return $cachedArray;
+                }
+            }
+        }
+    }
+    
+    // File doesn't exist, is older than 1 hour, or couldn't be read properly
+    // Serialize the array and write it to the file
+    $serializedArray = serialize($array);
+    $result = file_put_contents($filename, $serializedArray);
+    
+    if ($result === false) {
+        throw new Exception("Failed to write array to file: " . $filename);
+    }
+
+    logMessage("Return un-cached System entry.");
+    return $array;
 }
 
 function manageCharacterEventList($newList, $filename = 'conversation_list.json', $maxLength = 93, $maxAge = 3600) {
@@ -148,90 +182,6 @@ function arraysEqual($array1, $array2) {
     return json_encode($array1) === json_encode($array2);
 }
 
-// --- START: Standalone Cache Helper Functions ---
-
-if (!function_exists('connector_cacheReadFromFile')) {
-    function connector_cacheReadFromFile($fileName, $isUserAssistantCache = false)
-    {
-        $cacheFilePath = __DIR__ . "/../temp/" . $fileName;
-        if (!file_exists($cacheFilePath) || filesize($cacheFilePath) === 0)
-            return 0;
-        $file = @fopen($cacheFilePath, "r");
-        if (!$file) {
-            logMessage("Failed to open cache file for reading: " . $fileName);
-            return 0;
-        }
-        $timestampLine = trim(@fgets($file));
-        if ($timestampLine === false || !is_numeric($timestampLine) || $timestampLine <= 0) {
-            fclose($file);
-            @unlink($cacheFilePath);
-            logMessage("Invalid or missing timestamp in cache file: " . $fileName);
-            return 0;
-        }
-        $timestamp = (int) $timestampLine;
-        $lastIndex = -1;
-        $lastHash = null;
-        $content = "";
-        if ($isUserAssistantCache) {
-            $lastIndexLine = trim(@fgets($file));
-            if ($lastIndexLine === false || !is_numeric($lastIndexLine) || $lastIndexLine < -1) {
-                fclose($file);
-                @unlink($cacheFilePath);
-                logMessage("Invalid or missing lastIndex in cache file: " . $fileName);
-                return 0;
-            }
-            $lastIndex = (int) $lastIndexLine;
-            $lastHashLine = trim(@fgets($file));
-            if ($lastHashLine === false || (empty($lastHashLine) && $lastIndex > -1)) {
-                fclose($file);
-                @unlink($cacheFilePath);
-                logMessage("Invalid or missing lastHash in cache file: " . $fileName);
-                return 0;
-            }
-            $lastHash = $lastHashLine;
-            while (!feof($file)) {
-                $line = @fgets($file);
-                if ($line === false)
-                    break;
-                $content .= $line;
-            }
-        } else { // System cache
-            while (!feof($file)) {
-                $line = @fgets($file);
-                if ($line === false)
-                    break;
-                $content .= $line;
-            }
-        }
-        fclose($file);
-        return array('timestamp' => $timestamp, 'lastIndex' => $lastIndex, 'lastHash' => $lastHash, 'content' => $content);
-    }
-}
-
-if (!function_exists("connector_cacheWriteToFile")) {
-    function connector_cacheWriteToFile($fileName, $content, $timestamp, $lastIndexIncluded = null, $lastHashIncluded = null)
-    {
-        $filePath = __DIR__ . "/../temp/" . $fileName;
-        $folderPath = dirname($filePath);
-        if (!is_dir($folderPath)) {
-            if (!@mkdir($folderPath, 0755, true)) {
-                logMessage("Failed to create cache directory: " . $folderPath);
-                return false;
-            }
-        }
-        $fileContent = $timestamp . "\n";
-        if ($lastIndexIncluded !== null && is_numeric($lastIndexIncluded)) {
-            $fileContent .= $lastIndexIncluded . "\n";
-            $fileContent .= (isset($lastHashIncluded) ? $lastHashIncluded : '') . "\n";
-        }
-        $fileContent .= $content;
-        $bytesWritten = @file_put_contents($filePath, $fileContent, LOCK_EX);
-        if ($bytesWritten === false) {
-            logMessage("Failed to write cache file: " . $filePath);
-        }
-        return ($bytesWritten !== false);
-    }
-}
 
 // --- END: Standalone Cache Helper Functions ---
 
@@ -356,10 +306,8 @@ class openrouterjsonanthropic
     {
         // --- Setup and Logging ---
         require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."functions".DIRECTORY_SEPARATOR."json_response.php");
-        logMessage("Input Context");
-        logMessage($contextData);
-        $herikaNameForLog = isset($GLOBALS["HERIKA_NAME"]) ? $GLOBALS["HERIKA_NAME"] : 'default_herika';
-        $herikaName = $herikaNameForLog;
+        
+        $herikaName = isset($GLOBALS["HERIKA_NAME"]) ? $GLOBALS["HERIKA_NAME"] : 'default_herika';
         $n_ctxsize = count($contextData);
 
         logMessage("[{$this->name}:{$herikaName}] OPEN START: Received contextData with {$n_ctxsize} elements.");
@@ -368,48 +316,11 @@ class openrouterjsonanthropic
         $url = isset($GLOBALS["CONNECTOR"][$this->name]["url"]) ? $GLOBALS["CONNECTOR"][$this->name]["url"] : '';
         $MAX_TOKENS = ((isset($GLOBALS["CONNECTOR"][$this->name]["max_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_tokens"] : 4096) + 0);
         $model = (isset($GLOBALS["CONNECTOR"][$this->name]["model"])) ? $GLOBALS["CONNECTOR"][$this->name]["model"] : 'anthropic/claude-3-haiku-20240307';
+        $max_dialogue_cache_size = ((isset($GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"] : $n_ctxsize * 4) + 0);
 
-        // --- Configurable Cache Settings Reading ---
-        $sysCacheStrategy = 'ttl';
-        if (isset($GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"]) && in_array($GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"], array('content', 'ttl'))) {
-            $sysCacheStrategy = $GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"];
-        }
-        $sysCacheTTL = 900;
-        if (isset($GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"]) && is_numeric($GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"]) && $GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"] >= 0) {
-            $sysCacheTTL = (int) $GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"];
-        }
-        $dialogueCacheTTL = 900;
-        if (isset($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"]) && is_numeric($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"]) && $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"] >= 0) {
-            $dialogueCacheTTL = (int) $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"];
-        }
-        $numMessagesToKeepUncached = 5;
-        if (isset($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"]) && is_numeric($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"]) && $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"] >= 0) {
-            $numMessagesToKeepUncached = (int) $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"];
-        }
-        $logPrefix = "[{$this->name}:{$herikaName}]";
-        logMessage("{$logPrefix} Cache Config: SysStrategy={$sysCacheStrategy}, SysTTL={$sysCacheTTL}, DialogueTTL={$dialogueCacheTTL}, UncachedCount={$numMessagesToKeepUncached}");
-        // --- End Cache Settings Reading ---
-
-        logMessage("{$logPrefix} OPEN PREPROCESS: Processed contextData has {$n_ctxsize} elements. Skipped {$skipped_count}.");
-        // --- End Preprocessing ---
-
-        // --- Caching Setup with 2-cache approach ---
+        // --- Caching file names ---
         $cacheSystemFile = "system_cache_json_{$herikaName}.tmp";
-        $cacheCombinedDialogueFile = "combined_dialogue_cache_json_{$herikaName}.tmp"; // Single file for dialogue
-        $cacheSystemMessages = connector_cacheReadFromFile($cacheSystemFile, false);
-//        $cacheCombinedDialogueMessages = connector_cacheReadFromFile($cacheCombinedDialogueFile, true); // Use the same format with lastIndex/hash
-
-        $currentTime = time();
-
-        // --- Build Final Message List ---
-        $finalMessagesToSend = array();
-        $processedFirstSystem = false;
-        $systemContentForCacheFile = null;
-
-
-        // NEW: Append AVAILABLE ACTION text and additional messages to ensure actions are sent to LLM
-        // Use dynamic names from globals or context
-        $characters = DataBeingsInRange();
+        $cacheCombinedDialogueFile = "combined_dialogue_cache_json_{$herikaName}.tmp";
 
         $cacheControlType = array("type" => "ephemeral", "ttl" => "1h");
 
@@ -439,7 +350,8 @@ class openrouterjsonanthropic
             $jsonResponseInstruction;
 
         $dynamicEnvironment = "";
-
+        // Collect all system prompts
+        $systemEntries = [];
         foreach ($contextData as $n => $element) {
             if (isset($element["role"]) && $element["role"] == "system") {
                 $systemContentString = '';
@@ -449,78 +361,39 @@ class openrouterjsonanthropic
                     $systemContentString = $element['content'][0]['text'];
                 }
                 $trimmedSystemContent = trim($systemContentString);
-                if (!$processedFirstSystem && !empty($trimmedSystemContent)) {
-                    $processedFirstSystem = true;
-                    $systemContentOriginal = $trimmedSystemContent;
-                    $systemContentCurrent = $systemContentOriginal;
+                $systemContentOriginal = $trimmedSystemContent;
+                $systemContentCurrent = $systemContentOriginal;
 
-                    // Conditional System Cache Check
-                    $isSystemCacheValid = false;
-                    if (is_array($cacheSystemMessages) && isset($cacheSystemMessages['timestamp'])) {
-                        if ($sysCacheStrategy === 'ttl') {
-                            if (($currentTime - $cacheSystemMessages['timestamp']) <= $sysCacheTTL) {
-                                $isSystemCacheValid = true;
-                                logMessage("{$logPrefix} System cache valid based on TTL (Strategy B).");
-                            } else {
-                                logMessage("{$logPrefix} System cache expired based on TTL (Strategy B).");
-                            }
-                        } else {
-                            if (isset($cacheSystemMessages['content']) && $cacheSystemMessages['content'] === $systemContentCurrent) {
-                                $isSystemCacheValid = true;
-                                logMessage("{$logPrefix} System cache valid based on content match (Strategy A).");
-                            } else {
-                                logMessage("{$logPrefix} System cache invalid based on content mismatch (Strategy A).");
-                            }
-                        }
-                    } else {
-                        logMessage("{$logPrefix} System cache miss (file invalid or missing).");
-                    }
 
-                    // extract dynamic relevant parts
-                    $environmental = extract_and_remove_section($systemContentCurrent, 'Environmental Context');
-                    $additional = extract_and_remove_section($systemContentCurrent, 'Additional Information');
+                // extract dynamic relevant parts
+                $environmental = extract_and_remove_section($systemContentCurrent, 'Environmental Context');
+                $additional = extract_and_remove_section($systemContentCurrent, 'Additional Information');
 
-                    $additionalCharacter = extract_specific_section($systemContentCurrent, 'Additional Character Information');
-                    $combatStatus = extract_specific_section($systemContentCurrent, 'Combat Vitals');
-                    $arousal = extract_specific_section($systemContentCurrent, sectionHeader: 'Arousal Status');
+                $additionalCharacter = extract_specific_section($systemContentCurrent, 'Additional Character Information');
+                $combatStatus = extract_specific_section($systemContentCurrent, 'Combat Vitals');
+                $arousal = extract_specific_section($systemContentCurrent, sectionHeader: 'Arousal Status');
+                
+                $dynamicEnvironment = $environmental . "\n\n" . $additional . "\n\n" . $additionalCharacter . "\n\n" .  $combatStatus . "\n\n" . $arousal;
 
-                    
-                    $dynamicEnvironment = $environmental . "\n\n" . $additional . "\n\n" . $additionalCharacter . "\n\n" .  $combatStatus . "\n\n" . $arousal;
+                $finalSend = $systemContentCurrent . "\n" . $actionsText;
 
-                    if ($isSystemCacheValid) {
-                        $finalSend = $cacheSystemMessages["content"];
-
-                        $finalMessagesToSend[] = array("role" => "system", "content" => array(array("type" => "text", "text" => $finalSend, "cache_control" => $cacheControlType)));
-                        $systemContentForCacheFile = null;
-                    } else {
-                        $finalSend = $systemContentCurrent . "\n" . $actionsText;
-
-                        $finalMessagesToSend[] = array("role" => "system", "content" => array(array('type' => 'text', 'text' => $finalSend, "cache_control" => $cacheControlType)));
-
-                        $systemContentForCacheFile = $finalSend;
-                    }
-                } elseif ($processedFirstSystem && !empty($trimmedSystemContent)) {
-                    $cToSend = array(array('type' => 'text', 'text' => $trimmedSystemContent, "cache_control" => $cacheControlType));
-                    $finalMessagesToSend[] = array('role' => 'system', 'content' => $cToSend);
-                }
+                $systemEntries[] = array("role" => "system", "content" => array(array('type' => 'text', 'text' => $finalSend, "cache_control" => $cacheControlType)));
             }
         }
 
-        if ($systemContentForCacheFile !== null) {
-            connector_cacheWriteToFile($cacheSystemFile, $systemContentForCacheFile, $currentTime, null, null);
-            logMessage("{$logPrefix} System cache updated.");
-        }
+        $finalMessagesToSend = writeArrayToFileWithCache($systemEntries, $cacheSystemFile);
         // --- End System Processing ---
-        //$dynamicEnvironment .= "\nNearby available targets, beings or persons: {$characters})\n";
+
+        $characters = DataBeingsInRange();
         logMessage("nearby character: $characters");
         // --- Step 2: Process Combined Dialogue History ---
 
         // Add individual messages
         $contentTextToSend = [];
-        for ($sendIdx = 0; $sendIdx < $n_ctxsize; $sendIdx++) {
-            if (!isset($contextData[$sendIdx]))
+        foreach ($contextData as $n => $element) {
+            if (!isset($element))
                 continue;
-            $element = $contextData[$sendIdx];
+
             if (isset($element["role"]) && $element["role"] != "system") {
                 $contentString = '';
                 if (is_string($element['content'])) {
@@ -531,7 +404,6 @@ class openrouterjsonanthropic
                 ) {
                     $contentString = $element['content'][0]['text'];
                 }
-
                 if (!empty(trim($contentString))) {
                     if (
                         is_array($element['content']) && isset($element['content'][0]['type']) &&
@@ -546,14 +418,16 @@ class openrouterjsonanthropic
         }
 
         // remove unnecessary stuff for caching
-        $contentTextToSend = array_slice($contentTextToSend, 4);
+        if (count($contentTextToSend) > 6) {
+            $contentTextToSend = array_slice($contentTextToSend, 4);
+        }
         
         // remove instruction to add back later
         $instruction = array_pop($contentTextToSend);
 
         //logMessage($contentTextToSend, "current context list");
         // do caching stuff
-        $completeEventList = manageCharacterEventList($contentTextToSend,$cacheCombinedDialogueFile, $n_ctxsize * 4);        
+        $completeEventList = manageCharacterEventList($contentTextToSend,$cacheCombinedDialogueFile, $max_dialogue_cache_size);        
  
         logMessage( "New elements added to cache: {$completeEventList['new_count']}");
         
@@ -586,11 +460,8 @@ class openrouterjsonanthropic
 
         // If there is no assistant history, add example interaction
         if (!$hasAssistantHistory) {
-            logMessage("{$logPrefix} Added example interaction since no assistant history was found.");
+            logMessage(" Added example interaction since no assistant history was found.");
         }
-
-        logMessage("{$logPrefix} Added JSON response instruction as final user message.");
-        
         // Payload Construction
         $data = array(
             'model' => $model,
@@ -675,29 +546,6 @@ class openrouterjsonanthropic
         // Debug & Request Prep
         $GLOBALS["DEBUG_DATA"]["full"] = ($data);
         $this->_dataSent = json_encode($data, JSON_PRETTY_PRINT);
-        try {
-            $sysCacheLog = 'Sys:' . (is_array($cacheSystemMessages) && isset($cacheSystemMessages['content']) && $systemContentForCacheFile === null ? 'MATCH' : 'MISMATCH/WRITE');
-            $uaStatus = isset($hitDebugInfo['status']) ? $hitDebugInfo['status'] : 'UNKNOWN';
-            $uaReason = isset($hitDebugInfo['reason']) ? $hitDebugInfo['reason'] : '';
-            $uaCacheLog = "UA:" . $uaStatus;
-            if ($uaStatus === 'MISS' && !empty($uaReason)) {
-                $uaCacheLog .= '(' . $uaReason . ')';
-            }
-            $cacheStatus = $sysCacheLog . '/' . $uaCacheLog;
-            $finalMsgCount = isset($finalMessagesToSend) ? count($finalMessagesToSend) : 0;
-            $logEntry = sprintf(
-                "[%s] [%s:%s] [%s]\nPayload (%d msgs):\n%s\n---\n",
-                date(DATE_ATOM),
-                $this->name,
-                $herikaName,
-                $cacheStatus,
-                $finalMsgCount,
-                var_export($data, true)
-            );
-            @file_put_contents(__DIR__ . "/../log/context_sent_to_llm.log", $logEntry, FILE_APPEND | LOCK_EX);
-        } catch (Exception $e) {
-            logMessage("{$logPrefix} Context Log Err: " . $e->getMessage());
-        }
 
         // API Request Preparation
         $apiKey = isset($GLOBALS["CONNECTOR"][$this->name]["API_KEY"]) ? $GLOBALS["CONNECTOR"][$this->name]["API_KEY"] : '';
