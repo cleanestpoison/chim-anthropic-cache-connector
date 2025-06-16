@@ -547,6 +547,21 @@ class openrouterjsonanthropic
         $GLOBALS["DEBUG_DATA"]["full"] = ($data);
         $this->_dataSent = json_encode($data, JSON_PRETTY_PRINT);
 
+        try {
+            $finalMsgCount = isset($finalMessagesToSend) ? count($finalMessagesToSend) : 0;
+            $logEntry = sprintf(
+                "[%s] [%s:%s]\nPayload (%d msgs):\n%s\n---\n",
+                date(DATE_ATOM),
+                $this->name,
+                $herikaName,
+                $finalMsgCount,
+                var_export($data, true)
+            );
+            @file_put_contents(__DIR__ . "/../log/context_sent_to_llm.log", $logEntry, FILE_APPEND | LOCK_EX);
+        } catch (Exception $e) {
+            logMessage("{$logPrefix} Context Log Err: " . $e->getMessage());
+        }
+
         // API Request Preparation
         $apiKey = isset($GLOBALS["CONNECTOR"][$this->name]["API_KEY"]) ? $GLOBALS["CONNECTOR"][$this->name]["API_KEY"] : '';
         if (empty($apiKey)) {
