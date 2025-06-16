@@ -49,11 +49,12 @@ function logMessage(string|array $message, ?string $context = null, string $leve
 
     return true;
 }
-function writeArrayToFileWithCache($array, $filename, $cacheHours = 1) {
+function writeArrayToFileWithCache($array, $filename, $cacheHours = 1)
+{
     // Check if file exists and get its modification time
     $filename = __DIR__ . "/../temp/" . $filename;
     $directory = dirname($filename);
-      // Create directory if it doesn't exist
+    // Create directory if it doesn't exist
     if (!is_dir($directory)) {
         if (!mkdir($directory, 0755, true)) {
             throw new Exception("Failed to create directory: " . $directory);
@@ -63,7 +64,7 @@ function writeArrayToFileWithCache($array, $filename, $cacheHours = 1) {
         $fileModTime = filemtime($filename);
         $currentTime = time();
         $cacheExpiry = $cacheHours * 3600; // Convert hours to seconds
-        
+
         // If file is newer than the cache expiry time, read and return its contents
         if (($currentTime - $fileModTime) < $cacheExpiry) {
             $fileContents = file_get_contents($filename);
@@ -77,12 +78,12 @@ function writeArrayToFileWithCache($array, $filename, $cacheHours = 1) {
             }
         }
     }
-    
+
     // File doesn't exist, is older than 1 hour, or couldn't be read properly
     // Serialize the array and write it to the file
     $serializedArray = serialize($array);
     $result = file_put_contents($filename, $serializedArray);
-    
+
     if ($result === false) {
         throw new Exception("Failed to write array to file: " . $filename);
     }
@@ -91,7 +92,8 @@ function writeArrayToFileWithCache($array, $filename, $cacheHours = 1) {
     return $array;
 }
 
-function manageCharacterEventList($newList, $filename = 'conversation_list.json', $maxLength = 93, $maxAge = 3600) {
+function manageCharacterEventList($newList, $filename = 'conversation_list.json', $maxLength = 93, $maxAge = 3600)
+{
     logMessage("Max length of cached event history: $maxLength");
     $filename = __DIR__ . "/../temp/" . $filename;
     // Load existing list from file
@@ -115,13 +117,13 @@ function manageCharacterEventList($newList, $filename = 'conversation_list.json'
         $fileModTime = filemtime($filename);
         $currentTime = time();
         $fileAge = $currentTime - $fileModTime;
-         if ($fileAge >= $maxAge) {
+        if ($fileAge >= $maxAge) {
             logMessage("cleared cache because it is older than one hour");
             $existingList = [];
         }
     }
 
-     // Check if max length exceeded
+    // Check if max length exceeded
     if (count($existingList) >= $maxLength) {
         if (file_exists($filename)) {
             unlink($filename);
@@ -130,10 +132,10 @@ function manageCharacterEventList($newList, $filename = 'conversation_list.json'
         $existingList = []; // Clear the list
     }
 
-    
+
     // Find new elements that don't exist in the original list
     $newElements = [];
-    
+
     foreach ($newList as $newItem) {
         $found = false;
         foreach ($existingList as $existingItem) {
@@ -146,18 +148,18 @@ function manageCharacterEventList($newList, $filename = 'conversation_list.json'
             $newElements[] = $newItem;
         }
     }
-    
+
     // Add new elements to existing list
 
     $updatedList = array_merge($existingList, $newElements);
 
-     // Remove neighboring duplicates
+    // Remove neighboring duplicates
     $duplicatesRemoved = 0;
     $updatedList = removeNeighboringDuplicates($updatedList, $duplicatesRemoved);
     logMessage("Duplicates removed: $duplicatesRemoved");
 
     $updatedListCount = count($updatedList);
-    
+
     // Save updated list back to file
     file_put_contents($filename, json_encode($updatedList, JSON_PRETTY_PRINT));
     logMessage("Current length of cached event history: $updatedListCount");
@@ -170,14 +172,15 @@ function manageCharacterEventList($newList, $filename = 'conversation_list.json'
     ];
 }
 
-function removeNeighboringDuplicates($array, &$duplicatesRemoved) {
+function removeNeighboringDuplicates($array, &$duplicatesRemoved)
+{
     if (empty($array)) {
         return $array;
     }
-    
+
     $result = [$array[0]]; // Always keep the first element
     $duplicatesRemoved = 0;
-    
+
     for ($i = 1; $i < count($array); $i++) {
         // Compare current element with the previous one
         if (!arraysEqual($array[$i], $array[$i - 1])) {
@@ -186,32 +189,43 @@ function removeNeighboringDuplicates($array, &$duplicatesRemoved) {
             $duplicatesRemoved++;
         }
     }
-    
+
     return $result;
 }
 
-function arraysEqual($array1, $array2) {
+function arraysEqual($array1, $array2)
+{
     // Convert arrays to JSON strings for comparison
     return json_encode($array1) === json_encode($array2);
+}
+
+function containsOnlySymbols(string $str): bool
+{
+    // This regex allows newlines, tabs, and anything that is NOT
+    // a letter (a-z, A-Z), a number (0-9), or a space.
+    // So, it allows !@#$%^&*()_+-=[]{};':"|,./<>?\`~ and whitespace characters other than space
+    logMessage("contentstring: $str");
+    return (bool) preg_match('/^[\n\t\r\f\v!@#$%^&*()_+\-=\[\]{};\':"|,.<>\/?`~]+$/', $str);
 }
 
 
 // --- END: Standalone Cache Helper Functions ---
 
-function extractJson($text) {
+function extractJson($text)
+{
     // Find the starting position of JSON
     $start = strpos($text, '{');
     if ($start === false) {
         return $text;
     }
-    
+
     $braceCount = 0;
     $inString = false;
     $escaped = false;
-    
+
     for ($i = $start; $i < strlen($text); $i++) {
         $char = $text[$i];
-        
+
         if (!$inString) {
             if ($char === '{') {
                 $braceCount++;
@@ -234,11 +248,12 @@ function extractJson($text) {
             }
         }
     }
-    
+
     return $text;
 }
 
-function extract_specific_section(&$source, $sectionHeader) {
+function extract_specific_section(&$source, $sectionHeader)
+{
     // Escape the header for regex and match any level of underlines if present
     $pattern = '/##+#\s*' . preg_quote($sectionHeader) . '\s*\R[\s\S]*?(?=\R#|$)/';
 
@@ -264,23 +279,24 @@ function extract_and_remove_section(&$text, $section_name)
     }
 }
 
-function lazyEmpty($string) {
- 
+function lazyEmpty($string)
+{
+
     if (empty(trim($string)))
         return true;
-    
-    if (trim($string)=="Null")
+
+    if (trim($string) == "Null")
         return true;
-    
-    if (trim($string)=="null")
+
+    if (trim($string) == "null")
         return true;
-    
-    if (trim($string)=="None")
+
+    if (trim($string) == "None")
         return true;
-    
-    if (trim($string)=="none")
+
+    if (trim($string) == "none")
         return true;
-    
+
 }
 
 class openrouterjsonanthropic
@@ -318,8 +334,8 @@ class openrouterjsonanthropic
     public function open($contextData, $customParms)
     {
         // --- Setup and Logging ---
-        require_once(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."functions".DIRECTORY_SEPARATOR."json_response.php");
-        
+        require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "functions" . DIRECTORY_SEPARATOR . "json_response.php");
+
         $herikaName = isset($GLOBALS["HERIKA_NAME"]) ? $GLOBALS["HERIKA_NAME"] : 'default_herika';
         $n_ctxsize = count($contextData);
 
@@ -339,26 +355,26 @@ class openrouterjsonanthropic
 
         // build actions and json instruction
         if (isset($GLOBALS["PATCH_PROMPT_ENFORCE_ACTIONS"]) && $GLOBALS["PATCH_PROMPT_ENFORCE_ACTIONS"]) {
-            $prefix="{$GLOBALS["COMMAND_PROMPT_ENFORCE_ACTIONS"]}";
+            $prefix = "{$GLOBALS["COMMAND_PROMPT_ENFORCE_ACTIONS"]}";
         } else {
-            $prefix="";
+            $prefix = "";
         }
-        if (strpos($GLOBALS["HERIKA_PERS"],"#SpeechStyle")!==false) {
-            $speechReinforcement="Use #SpeechStyle.";
+        if (strpos($GLOBALS["HERIKA_PERS"], "#SpeechStyle") !== false) {
+            $speechReinforcement = "Use #SpeechStyle.";
         } else
-            $speechReinforcement="";
+            $speechReinforcement = "";
 
         $zonosTones = $GLOBALS["TTSFUNCTION"] == "zonos_gradio" ? " (Response tones are mandatory in the response)" : "";
 
         $customInstruction = "";
 
-        $jsonResponseInstruction = "{$prefix} $speechReinforcement $customInstruction Use ONLY this JSON object to give your answer. Do not send any other characters outside of this JSON structure$zonosTones: ".json_encode($GLOBALS["responseTemplate"]);
+        $jsonResponseInstruction = "{$prefix} $speechReinforcement $customInstruction Use ONLY this JSON object to give your answer. Do not send any other characters outside of this JSON structure$zonosTones: " . json_encode($GLOBALS["responseTemplate"]);
 
         // remove dynamic targets, that might be shitty when we cache them
         $availableActions = preg_replace('/\(available targets:[^\n]*/', '', $GLOBALS["COMMAND_PROMPT"]);
 
         $actionsText = "\n" .
-            $availableActions . 
+            $availableActions .
             "\n" .
             $jsonResponseInstruction;
 
@@ -385,8 +401,8 @@ class openrouterjsonanthropic
                 $additionalCharacter = extract_specific_section($systemContentCurrent, 'Additional Character Information');
                 $combatStatus = extract_specific_section($systemContentCurrent, 'Combat Vitals');
                 $arousal = extract_specific_section($systemContentCurrent, sectionHeader: 'Arousal Status');
-                
-                $dynamicEnvironment = $environmental . "\n\n" . $additional . "\n\n" . $additionalCharacter . "\n\n" .  $combatStatus . "\n\n" . $arousal;
+
+                $dynamicEnvironment = $environmental . "\n\n" . $additional . "\n\n" . $additionalCharacter . "\n\n" . $combatStatus . "\n\n" . $arousal;
 
                 $finalSend = $systemContentCurrent . "\n" . $actionsText;
 
@@ -396,7 +412,6 @@ class openrouterjsonanthropic
 
         $finalMessagesToSend = writeArrayToFileWithCache($systemEntries, $cacheSystemFile);
         // --- End System Processing ---
-
         $characters = DataBeingsInRange();
         logMessage("nearby character: $characters");
         // --- Step 2: Process Combined Dialogue History ---
@@ -417,6 +432,9 @@ class openrouterjsonanthropic
                 ) {
                     $contentString = $element['content'][0]['text'];
                 }
+                if (containsOnlySymbols($contentString)) {
+                    continue;
+                }
                 if (!empty(trim($contentString))) {
                     if (
                         is_array($element['content']) && isset($element['content'][0]['type']) &&
@@ -429,21 +447,19 @@ class openrouterjsonanthropic
                 }
             }
         }
-
         // remove unnecessary stuff for caching
-        if (count($contentTextToSend) > 6) {
+        if (count($contentTextToSend) > 4) {
             $contentTextToSend = array_slice($contentTextToSend, 4);
         }
-        
         // remove instruction to add back later
         $instruction = array_pop($contentTextToSend);
 
         //logMessage($contentTextToSend, "current context list");
         // do caching stuff
-        $completeEventList = manageCharacterEventList($contentTextToSend,$cacheCombinedDialogueFile, $max_dialogue_cache_size);        
- 
-        logMessage( "New elements added to cache: {$completeEventList['new_count']}");
-        
+        $completeEventList = manageCharacterEventList($contentTextToSend, $cacheCombinedDialogueFile, $max_dialogue_cache_size);
+
+        logMessage("New elements added to cache: {$completeEventList['new_count']}");
+
         $completeEventList = $completeEventList['updated_list'];
         $completeEventList[] = $instruction;
         // Get the index of the last element
@@ -456,9 +472,12 @@ class openrouterjsonanthropic
             $completeEventList[$lastIndex]["cache_control"] = $cacheControlType;
         }
 
-        array_splice($completeEventList, count($completeEventList)-2, 0, [array('type' => 'text', 'text' => $dynamicEnvironment)]);
+        if (!containsOnlySymbols($dynamicEnvironment)) {
+            array_splice($completeEventList, count($completeEventList) - 2, 0, [array('type' => 'text', 'text' => $dynamicEnvironment)]);
+        }
 
         $finalMessagesToSend[] = array('role' => 'user', 'content' => $completeEventList);
+
 
         // --- End Dialogue Processing ---
 
@@ -806,14 +825,13 @@ class openrouterjsonanthropic
             $extracted_json_or_text = extractJson($this->_buffer);
             $tempJson = json_decode($extracted_json_or_text, true);
             if (json_last_error() === JSON_ERROR_NONE && isset($tempJson['message']) && !empty($tempJson['message'])) {
-                $GLOBALS["SCRIPTLINE_ANIMATION"]=GetAnimationHex($tempJson["mood"]);
-                $GLOBALS["SCRIPTLINE_EXPRESSION"]=GetExpression($tempJson["mood"]);
+                $GLOBALS["SCRIPTLINE_ANIMATION"] = GetAnimationHex($tempJson["mood"]);
+                $GLOBALS["SCRIPTLINE_EXPRESSION"] = GetExpression($tempJson["mood"]);
                 if (isset($tempJson["listener"])) {
-                    if (isset($tempJson["action"])&& ($tempJson["action"]=="Talk")&& lazyEmpty($tempJson["listener"]) && !lazyEmpty($tempJson["target"])) {
-                        $GLOBALS["SCRIPTLINE_LISTENER"]=$tempJson["target"];
-                    }
-                    else {
-                        $GLOBALS["SCRIPTLINE_LISTENER"]=$tempJson["listener"];
+                    if (isset($tempJson["action"]) && ($tempJson["action"] == "Talk") && lazyEmpty($tempJson["listener"]) && !lazyEmpty($tempJson["target"])) {
+                        $GLOBALS["SCRIPTLINE_LISTENER"] = $tempJson["target"];
+                    } else {
+                        $GLOBALS["SCRIPTLINE_LISTENER"] = $tempJson["listener"];
                     }
                 }
                 return $tempJson['message'];
