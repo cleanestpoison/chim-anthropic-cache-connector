@@ -52,6 +52,13 @@ function logMessage(string|array $message, ?string $context = null, string $leve
 function writeArrayToFileWithCache($array, $filename, $cacheHours = 1) {
     // Check if file exists and get its modification time
     $filename = __DIR__ . "/../temp/" . $filename;
+    $directory = dirname($filename);
+      // Create directory if it doesn't exist
+    if (!is_dir($directory)) {
+        if (!mkdir($directory, 0755, true)) {
+            throw new Exception("Failed to create directory: " . $directory);
+        }
+    }
     if (file_exists($filename)) {
         $fileModTime = filemtime($filename);
         $currentTime = time();
@@ -88,6 +95,12 @@ function manageCharacterEventList($newList, $filename = 'conversation_list.json'
     logMessage("Max length of cached event history: $maxLength");
     $filename = __DIR__ . "/../temp/" . $filename;
     // Load existing list from file
+    $directory = dirname($filename);
+    if (!is_dir($directory)) {
+        if (!mkdir($directory, 0755, true)) {
+            throw new Exception("Failed to create directory: " . $directory);
+        }
+    }
     $existingList = [];
     if (file_exists($filename)) {
         $fileContent = file_get_contents($filename);
