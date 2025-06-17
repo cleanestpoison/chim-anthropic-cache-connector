@@ -348,6 +348,8 @@ class openrouterjsonanthropic
         $max_dialogue_cache_size = ((isset($GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"] : $n_ctxsize * 4) + 0);
         $customInstruction = isset($GLOBALS["CONNECTOR"][$this->name]["custom_last_instruction"]) ? $GLOBALS["CONNECTOR"][$this->name]["custom_last_instruction"] : '';
 
+        $lastCustomInstruction = isset($GLOBALS["CONNECTOR"][$this->name]["custom_last_user_instruction"]) ? $GLOBALS["CONNECTOR"][$this->name]["custom_last_user_instruction"] : '';
+
         // --- Caching file names ---
         $cacheSystemFile = "system_cache_json_{$herikaName}.tmp";
         $cacheCombinedDialogueFile = "combined_dialogue_cache_json_{$herikaName}.tmp";
@@ -460,9 +462,15 @@ class openrouterjsonanthropic
         logMessage("New elements added to cache: {$completeEventList['new_count']}");
 
         $completeEventList = $completeEventList['updated_list'];
+
+        $addToIndex = 0;
+        if (!empty($lastCustomInstruction)) {
+            $addToIndex = 1;
+            $completeEventList[] = ['type' => 'text', 'text' => $lastCustomInstruction];
+        }
         $completeEventList[] = $instruction;
         // Get the index of the last element
-        $lastIndex = count($completeEventList) - 3;
+        $lastIndex = count($completeEventList) - (3+$addToIndex);
 
         // Make sure the array is not empty before trying to access the last element
         if ($lastIndex >= 0) {

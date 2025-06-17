@@ -642,7 +642,13 @@
       },
       "custom_last_instruction": {
         "type": "longstring",
+        "userlvl": "wip",
         "description": "Leave blank unless you want to add something to the last part of the system prompt."
+      },
+      "custom_last_user_instruction": {
+        "type": "longstring",
+        "userlvl": "wip",
+        "description": "Leave blank unless you want to add something to the last part of the user prompt."
       }
     },
     "openrouteranthropic": {
