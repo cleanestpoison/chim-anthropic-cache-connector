@@ -3,9 +3,6 @@ Instructions:
 Drag copy the contents inside the HerikaServer folder into your local HerikaServer folder:
 \wsl.localhost\DwemerAI4Skyrim3\var\www\html\HerikaServer
 
-DO NOT use Troubleshooting->Current LLM/AI Connection Test. Use Immersion->Chat instead.
-YOU MUST clear the contents of the \wsl.localhost\DwemerAI4Skyrim3\var\www\html\HerikaServer\temp folder every time you are done using Immersion->Chat.
-
 In the CHIM webUI, set Configuration Depth to Experimental (use Crtl+F if struggling).
 
 In the CHIM webUI, navigate to (use Crtl+F if struggling):
@@ -15,6 +12,10 @@ In the CHIM webUI, navigate to (use Crtl+F if struggling):
 
 If it exists, delete everything in the folder,
 \wsl.localhost\DwemerAI4Skyrim3\var\www\html\HerikaServer\temp
+
+To test, simply use the troubleshooting page.
+YOU MUST clear the contents of the \wsl.localhost\DwemerAI4Skyrim3\var\www\html\HerikaServer\temp folder every time you are done using Troubleshooting or Immersion->Chat to test.
+
 
 Additional Notes:
 
