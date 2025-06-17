@@ -1,5 +1,7 @@
 # chim-anthropic-cache-connector
 Instructions:
+Download the latest Version from the Releases.
+
 Drag copy the contents inside the HerikaServer folder into your local HerikaServer folder:
 \wsl.localhost\DwemerAI4Skyrim3\var\www\html\HerikaServer
 
