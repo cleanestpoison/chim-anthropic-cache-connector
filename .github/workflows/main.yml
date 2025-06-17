@@ -1,4 +1,4 @@
-name: Create Release on Commit
+name: Create Release on Commit with Increasing Version
 
 on:
   push:
@@ -9,34 +9,52 @@ jobs:
   build_and_release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # This permission is required to create and upload releases
+      contents: write # This permission is required to create and upload releases and push back to repo
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed to allow pushing back to the repo
 
-      - name: Get current commit SHA
-        id: commit_sha
-        run: echo "SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Read current version
+        id: get_version
+        run: |
+          CURRENT_VERSION=$(cat VERSION)
+          NEW_VERSION=$((CURRENT_VERSION + 1))
+          echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Get current date and time
-        id: datetime
-        run: echo "DATETIME=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+      - name: Set repository name
+        id: repo_name
+        run: echo "NAME=${{ github.event.repository.name }}" >> $GITHUB_OUTPUT
 
       - name: Zip repository
-        run: zip -r release-${{ steps.datetime.outputs.DATETIME }}-${{ steps.commit_sha.outputs.SHA }}.zip . -x ".git/*" ".github/*" "node_modules/*" # Adjust exclusions as needed
+        run: |
+          zip -r ${{ steps.repo_name.outputs.NAME }}-v${{ steps.get_version.outputs.NEW_VERSION }}.zip . \
+            -x ".git/*" ".github/*" "node_modules/*" "VERSION" # Exclude VERSION file if you don't want it in the zip
 
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.datetime.outputs.DATETIME }}-${{ steps.commit_sha.outputs.SHA }}
-          name: Release ${{ steps.datetime.outputs.DATETIME }}-${{ steps.commit_sha.outputs.SHA }}
+          tag_name: v${{ steps.get_version.outputs.NEW_VERSION }}
+          name: ${{ steps.repo_name.outputs.NAME }} v${{ steps.get_version.outputs.NEW_VERSION }}
           body: |
-            Automated release from commit: ${{ github.sha }}
-            This release zips the entire repository at the time of the commit.
+            Automated release: v${{ steps.get_version.outputs.NEW_VERSION }}
+            This release zips the entire repository.
           draft: false
           prerelease: false
-          files: release-${{ steps.datetime.outputs.DATETIME }}-${{ steps.commit_sha.outputs.SHA }}.zip
+          files: ${{ steps.repo_name.outputs.NAME }}-v${{ steps.get_version.outputs.NEW_VERSION }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version file
+        run: echo "${{ steps.get_version.outputs.NEW_VERSION }}" > VERSION
+
+      - name: Commit and Push new version
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'ci: Bump version to ${{ steps.get_version.outputs.NEW_VERSION }}'
+          branch: ${{ github.ref_name }} # Push to the same branch that triggered the workflow
+          file_pattern: 'VERSION'
