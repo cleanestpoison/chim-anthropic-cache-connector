@@ -166,7 +166,7 @@ class openrouteranthropic
 
         // --- Configurable Cache Settings Reading ---
         $toggleThinking = isset($GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"]) ? $GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"] : false;
-        $thinkingTokens = isset($GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"] : "2000";
+        $thinkingTokens = isset($GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"] : 1000;
 
         $sysCacheStrategy = 'ttl';
         if (isset($GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"]) && in_array($GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"], array('content', 'ttl'))) {
@@ -223,6 +223,8 @@ class openrouteranthropic
         $processedFirstSystem = false; 
         $systemContentForCacheFile = null;
 
+        $cacheControl = ["type"=>"ephemeral", "ttl" => "1h"];
+
         // Step 1: Process System Messages (unchanged from original)
         foreach ($contextDataOrig as $n => $element) {
             if (isset($element["role"]) && $element["role"] == "system") {
@@ -249,11 +251,11 @@ class openrouteranthropic
                      } else { error_log("{$logPrefix} System cache miss (file invalid or missing)."); }
 
                      if ($isSystemCacheValid) {
-                        $finalMessagesToSend[] = array( "role"=>"system", "content"=>array(array("type"=>"text", "text"=>$cacheSystemMessages["content"], "cache_control"=>array("type"=>"ephemeral"))) );
+                        $finalMessagesToSend[] = array( "role"=>"system", "content"=>array(array("type"=>"text", "text"=>$cacheSystemMessages["content"], "cache_control"=>$cacheControl)) );
                         $systemContentForCacheFile = null;
                      } else {
                          $cToSend = array(array('type'=>'text', 'text'=>$systemContentCurrent));
-                         $finalMessagesToSend[] = array("role"=>"system", "content"=>$cToSend, "cache_control"=>array("type"=>"ephemeral"));
+                         $finalMessagesToSend[] = array("role"=>"system", "content"=>$cToSend, "cache_control"=>$cacheControl);
                          $systemContentForCacheFile = $systemContentCurrent;
                      }
                  } elseif ($processedFirstSystem && !empty($trimmedSystemContent)) {
@@ -291,7 +293,7 @@ class openrouteranthropic
                      "content" => array(array(
                          "type" => "text", 
                          "text" => rtrim($cacheCombinedDialogueMessages["content"], "\n"), 
-                         "cache_control" => array("type" => "ephemeral")
+                         "cache_control" => $cacheControl
                      ))
                  ); 
              }
@@ -378,7 +380,7 @@ class openrouteranthropic
                      'content' => array(array(
                          'type' => 'text', 
                          'text' => rtrim($combinedDialogueResult['content'], "\n"), 
-                         'cache_control' => array('type' => 'ephemeral')
+                         'cache_control' => $cacheControl
                      ))
                  ); 
              }
@@ -449,7 +451,7 @@ class openrouteranthropic
         if ($lastIndex >= 0) {
             // Add a new field to the last entry
             // Let's say you want to add a field called "speaker"
-            $contentTextToSend[$lastIndex]["cache_control"] = array('type' => 'ephemeral');
+            $contentTextToSend[$lastIndex]["cache_control"] = $cacheControl;
         }
 
         $finalMessagesToSend[] = array('role' => 'user', 'content' => $contentTextToSend);
@@ -493,7 +495,7 @@ class openrouteranthropic
             'transforms' => array(),
             'reasoning' => [
                 "enabled" => $toggleThinking,
-                "max_token" => strval($thinkingTokens),
+                "max_tokens" => $thinkingTokens,
             ]
         );
         unset($data["stop"]);

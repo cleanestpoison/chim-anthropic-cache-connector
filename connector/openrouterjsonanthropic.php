@@ -423,8 +423,10 @@ class openrouterjsonanthropic
         $max_dialogue_cache_size = ((isset($GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"] : $n_ctxsize * 3) + 0);
         $customInstruction = isset($GLOBALS["CONNECTOR"][$this->name]["custom_last_instruction"]) ? $GLOBALS["CONNECTOR"][$this->name]["custom_last_instruction"] : '';
         $toggleThinking = isset($GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"]) ? $GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"] : false;
-        $thinkingTokens = isset($GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"] : "2000";
-
+        $thinkingTokens = isset($GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"] : 2000;
+        $geminiToggle = isset($GLOBALS["CONNECTOR"][$this->name]["gemini_toggle"]) ? $GLOBALS["CONNECTOR"][$this->name]["gemini_toggle"] : false;
+        $CONTEXTHISTORY = $GLOBALS['CONTEXT_HISTORY'];
+        logMessage("CONTEXT HISTORY: $CONTEXTHISTORY");
 
         $lastCustomInstruction = isset($GLOBALS["CONNECTOR"][$this->name]["custom_last_user_instruction"]) ? $GLOBALS["CONNECTOR"][$this->name]["custom_last_user_instruction"] : '';
 
@@ -548,15 +550,20 @@ class openrouterjsonanthropic
         
         $completeEventList[] = $instruction;
         // Get the index of the last element
-        $lastIndex = count($completeEventList) - (2+$addToIndex);
+        $lastIndex = count($completeEventList) - (3+$addToIndex);
 
         // Make sure the array is not empty before trying to access the last element
         if ($lastIndex >= 0) {
-            // Add a new field to the last entry
-            // Let's say you want to add a field called "speaker"
-            $completeEventList[$lastIndex]["cache_control"] = $cacheControlType;
+            if ($geminiToggle) {
+                $elements = count($completeEventList);
+                $indexToCache = (int) ((floor($elements / ($CONTEXTHISTORY- 4)) * $CONTEXTHISTORY) - 4);  
+                logMessage("Index to Cache: $indexToCache");
+                $completeEventList[$indexToCache]["cache_control"] = $cacheControlType;
+            } else {
+                $completeEventList[$lastIndex]["cache_control"] = $cacheControlType;
+            }   
         }
-
+        
         if (!containsOnlySymbols($dynamicEnvironment)) {
             // Remove headlines
             $text = preg_replace('/^\s*#+.*$/m', '', $dynamicEnvironment);
@@ -600,7 +607,7 @@ class openrouterjsonanthropic
             'top_a' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["top_a"])) ? $GLOBALS["CONNECTOR"][$this->name]["top_a"] : 0),
             'reasoning' => [
                 "enabled" => $toggleThinking,
-                "max_token" => strval($thinkingTokens),
+                "max_tokens" => $thinkingTokens,
             ]
         );
 
