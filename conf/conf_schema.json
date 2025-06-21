@@ -658,7 +658,7 @@
       "thinking_tokens": {
         "type": "number",
         "userlvl": "wip",
-        "description": "How many maximum thinking tokens should be used. Must be higher the output token."
+        "description": "How many maximum thinking tokens should be used. Output Token must be higher then thinking tokens."
       }
     },
     "openrouteranthropic": {
@@ -780,7 +780,7 @@
       "thinking_tokens": {
         "type": "number",
         "userlvl": "wip",
-        "description": "How many maximum thinking tokens should be used. Must be higher the output token."
+        "description": "How many maximum thinking tokens should be used. Output token must be higher then thinking tokens."
       }
     },
     "openaijson": {
