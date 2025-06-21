@@ -165,19 +165,22 @@ class openrouteranthropic
         $model = (isset($GLOBALS["CONNECTOR"][$this->name]["model"])) ? $GLOBALS["CONNECTOR"][$this->name]["model"] : 'anthropic/claude-3-haiku-20240307';
 
         // --- Configurable Cache Settings Reading ---
+        $toggleThinking = isset($GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"]) ? $GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"] : false;
+        $thinkingTokens = isset($GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"] : "2000";
+
         $sysCacheStrategy = 'ttl';
         if (isset($GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"]) && in_array($GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"], array('content', 'ttl'))) {
             $sysCacheStrategy = $GLOBALS["CONNECTOR"][$this->name]["system_cache_strategy"];
         }
-        $sysCacheTTL = 7200;
+        $sysCacheTTL = 900;
         if (isset($GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"]) && is_numeric($GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"]) && $GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"] >= 0) {
             $sysCacheTTL = (int)$GLOBALS["CONNECTOR"][$this->name]["system_cache_ttl"];
         }
-        $dialogueCacheTTL = 7200;
+        $dialogueCacheTTL = 900;
         if (isset($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"]) && is_numeric($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"]) && $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"] >= 0) {
             $dialogueCacheTTL = (int)$GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_ttl"];
         }
-        $numMessagesToKeepUncached = 15;
+        $numMessagesToKeepUncached = 5;
         if (isset($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"]) && is_numeric($GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"]) && $GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"] >= 0) {
             $numMessagesToKeepUncached = (int)$GLOBALS["CONNECTOR"][$this->name]["dialogue_cache_uncached_count"];
         }
@@ -476,7 +479,9 @@ class openrouteranthropic
 
         // --- Payload Construction ---
         $data = array(
-            'model' => $model, 'messages' => $finalMessagesToSend, 'stream' => true,
+            'model' => $model, 
+            'messages' => $finalMessagesToSend,
+            'stream' => true,
             'temperature' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["temperature"])) ? $GLOBALS["CONNECTOR"][$this->name]["temperature"] : 1),
             'top_k' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["top_k"])) ? $GLOBALS["CONNECTOR"][$this->name]["top_k"] : 0),
             'top_p' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["top_p"])) ? $GLOBALS["CONNECTOR"][$this->name]["top_p"] : 1),
@@ -486,6 +491,10 @@ class openrouteranthropic
             'min_p' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["min_p"])) ? $GLOBALS["CONNECTOR"][$this->name]["min_p"] : 0.1),
             'top_a' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["top_a"])) ? $GLOBALS["CONNECTOR"][$this->name]["top_a"] : 0),
             'transforms' => array(),
+            'reasoning' => [
+                "enabled" => $toggleThinking,
+                "max_token" => strval($thinkingTokens),
+            ]
         );
         unset($data["stop"]);
         if (isset($GLOBALS["CONNECTOR"][$this->name]["stop"]) && is_array($GLOBALS["CONNECTOR"][$this->name]["stop"])) {

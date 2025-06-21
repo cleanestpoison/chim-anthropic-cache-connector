@@ -49,6 +49,81 @@ function logMessage(string|array $message, ?string $context = null, string $leve
 
     return true;
 }
+
+function removeDuplicateMemories($array) {
+    $seenMemories = [];
+    $filteredArray = [];
+    
+    foreach ($array as $index => $item) {
+        // Check if this is a memory entry
+        if (isset($item['text']) && strpos($item['text'], '#MEMORY:') === 0) {
+            $memoryText = $item['text'];
+            
+            // Normalize whitespace for comparison
+            $normalizedMemory = preg_replace('/\s+/', ' ', trim($memoryText));
+            
+            // Only keep if we haven't seen this normalized memory before
+            if (!isset($seenMemories[$normalizedMemory])) {
+                $seenMemories[$normalizedMemory] = true;
+                $filteredArray[] = $item;
+            }
+            // Skip duplicates
+        } else {
+            // Not a memory entry, always keep it
+            $filteredArray[] = $item;
+        }
+    }
+    
+    logMessage("Memories:");
+    logMessage($seenMemories);
+    return $filteredArray;
+}
+
+function countTokensByWords($array) {
+    $totalTokens = 0;
+    
+    foreach ($array as $item) {
+        if (isset($item['text'])) {
+            // Remove extra whitespace and split by spaces
+            $words = preg_split('/\s+/', trim($item['text']), -1, PREG_SPLIT_NO_EMPTY);
+            $totalTokens += count($words);
+        }
+    }
+    
+    return $totalTokens;
+}
+
+function getLastEntryByCharacter($array, $characterName) {
+    // Loop through array in reverse order to find the last entry
+    for ($i = count($array) - 1; $i >= 0; $i--) {
+        $entry = $array[$i];
+        
+        // Skip if not a text entry
+        if (!isset($entry['type']) || $entry['type'] !== 'text' || !isset($entry['text'])) {
+            continue;
+        }
+        
+        $text = $entry['text'];
+        
+        // Look for character dialogue pattern: "Character: [dialogue]"
+        // This excludes action text like "Serana casts Ice Spike"
+        if (preg_match('/^([^:]+):\s*(.+)/', $text, $matches)) {
+            $speaker = trim($matches[1]);
+            $dialogue = trim($matches[2]);
+            
+            // Skip if it's just an action (like "casts", "engages combat", etc.)
+            if (!preg_match('/^(casts|engages|died|found|activates|has defeated)/i', $dialogue)) {
+                // Check if this entry matches our target character
+                if (strcasecmp($speaker, $characterName) === 0) {
+                    return $entry;
+                }
+            }
+        }
+    }
+    
+    return ''; // Character not found
+}
+
 function writeArrayToFileWithCache($array, $filename, $cacheHours = 1)
 {
     // Check if file exists and get its modification time
@@ -204,7 +279,6 @@ function containsOnlySymbols(string $str): bool
     // This regex allows newlines, tabs, and anything that is NOT
     // a letter (a-z, A-Z), a number (0-9), or a space.
     // So, it allows !@#$%^&*()_+-=[]{};':"|,./<>?\`~ and whitespace characters other than space
-    logMessage("contentstring: $str");
     return (bool) preg_match('/^[\n\t\r\f\v!@#$%^&*()_+\-=\[\]{};\':"|,.<>\/?`~]+$/', $str);
 }
 
@@ -334,6 +408,7 @@ class openrouterjsonanthropic
     public function open($contextData, $customParms)
     {
         // --- Setup and Logging ---
+        $start_time = microtime(true);
         require_once(__DIR__ . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "functions" . DIRECTORY_SEPARATOR . "json_response.php");
 
         $herikaName = isset($GLOBALS["HERIKA_NAME"]) ? $GLOBALS["HERIKA_NAME"] : 'default_herika';
@@ -347,6 +422,9 @@ class openrouterjsonanthropic
         $model = (isset($GLOBALS["CONNECTOR"][$this->name]["model"])) ? $GLOBALS["CONNECTOR"][$this->name]["model"] : 'anthropic/claude-3-haiku-20240307';
         $max_dialogue_cache_size = ((isset($GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"] : $n_ctxsize * 4) + 0);
         $customInstruction = isset($GLOBALS["CONNECTOR"][$this->name]["custom_last_instruction"]) ? $GLOBALS["CONNECTOR"][$this->name]["custom_last_instruction"] : '';
+        $toggleThinking = isset($GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"]) ? $GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"] : false;
+        $thinkingTokens = isset($GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"] : "2000";
+
 
         $lastCustomInstruction = isset($GLOBALS["CONNECTOR"][$this->name]["custom_last_user_instruction"]) ? $GLOBALS["CONNECTOR"][$this->name]["custom_last_user_instruction"] : '';
 
@@ -441,10 +519,9 @@ class openrouterjsonanthropic
                         is_array($element['content']) && isset($element['content'][0]['type']) &&
                         $element['content'][0]['type'] === 'text'
                     ) {
-                        $contentTextToSend[] = ['type' => $element['content'][0]['type'], 'text' => $element['content'][0]['text']];
-                    } else {
-                        $contentTextToSend[] = array('type' => 'text', 'text' => $contentString);
+                        $contentString = $element['content'][0]['text'];
                     }
+                    $contentTextToSend[] = array('type' => 'text', 'text' => "$contentString");
                 }
             }
         }
@@ -468,9 +545,10 @@ class openrouterjsonanthropic
             $addToIndex = 1;
             $completeEventList[] = ['type' => 'text', 'text' => $lastCustomInstruction];
         }
+        
         $completeEventList[] = $instruction;
         // Get the index of the last element
-        $lastIndex = count($completeEventList) - (3+$addToIndex);
+        $lastIndex = count($completeEventList) - (2+$addToIndex);
 
         // Make sure the array is not empty before trying to access the last element
         if ($lastIndex >= 0) {
@@ -480,27 +558,33 @@ class openrouterjsonanthropic
         }
 
         if (!containsOnlySymbols($dynamicEnvironment)) {
+            // Remove headlines
+            $text = preg_replace('/^\s*#+.*$/m', '', $dynamicEnvironment);
+            
+            // Remove bullet points and dashes
+            $text = preg_replace('/^\s*[-•]\s*/', '', $text);
+            
+            // Remove multiple spaces and newlines
+            $text = preg_replace('/\s+/', ' ', $text);
+            
+            // Remove extra punctuation
+            $text = preg_replace('/[.]{2,}/', '.', $text);
+            
+            $dynamicEnvironment = trim("ASSISTANT: Environmental Context: $text");
+
             array_splice($completeEventList, count($completeEventList) - 2, 0, [array('type' => 'text', 'text' => $dynamicEnvironment)]);
         }
 
-        $finalMessagesToSend[] = array('role' => 'user', 'content' => $completeEventList);
+        $completeEventList = removeDuplicateMemories($completeEventList);
 
+        $finalMessagesToSend[] = array('role' => 'user', 'content' => $completeEventList);
+        $tokenCount = countTokensByWords($completeEventList);
+        logMessage($tokenCount);
+
+     
 
         // --- End Dialogue Processing ---
 
-        // Check if there is assistant history to decide whether to add examples
-        $hasAssistantHistory = false;
-        foreach ($finalMessagesToSend as $msg) {
-            if ($msg['role'] === 'assistant') {
-                $hasAssistantHistory = true;
-                break;
-            }
-        }
-
-        // If there is no assistant history, add example interaction
-        if (!$hasAssistantHistory) {
-            logMessage(" Added example interaction since no assistant history was found.");
-        }
         // Payload Construction
         $data = array(
             'model' => $model,
@@ -514,6 +598,10 @@ class openrouterjsonanthropic
             'repetition_penalty' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["repetition_penalty"])) ? $GLOBALS["CONNECTOR"][$this->name]["repetition_penalty"] : 1),
             'min_p' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["min_p"])) ? $GLOBALS["CONNECTOR"][$this->name]["min_p"] : 0),
             'top_a' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["top_a"])) ? $GLOBALS["CONNECTOR"][$this->name]["top_a"] : 0),
+            'reasoning' => [
+                "enabled" => $toggleThinking,
+                "max_token" => strval($thinkingTokens),
+            ]
         );
 
         // Prepare tool definition for JSON mode
@@ -634,6 +722,10 @@ class openrouterjsonanthropic
         $this->_buffer = "";
         $this->_forcedClose = false;
         $this->_jsonResponsesEncoded = array();
+
+        $end_time = microtime(true);
+        $execution_time = $end_time - $start_time;
+        logMessage("Time for preparing cached request: $execution_time seconds");
 
         try {
             $this->primary_handler = $this->send($url, $context);

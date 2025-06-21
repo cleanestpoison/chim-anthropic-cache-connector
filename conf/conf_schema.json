@@ -649,6 +649,16 @@
         "type": "longstring",
         "userlvl": "wip",
         "description": "Leave blank unless you want to add something to the last part of the user prompt."
+      },
+      "toggle_thinking": {
+        "type": "boolean",
+        "userlvl": "wip",
+        "description": "Toggle caching on or off. Only works on supporting models."
+      },
+      "thinking_tokens": {
+        "type": "number",
+        "userlvl": "wip",
+        "description": "How many maximum thinking tokens should be used. Must be higher the output token."
       }
     },
     "openrouteranthropic": {
@@ -761,6 +771,16 @@
         "userlvl": "pro",
         "type": "integer",
         "description": "How many <i>recent</i> conversation turns (Your message + NPC reply = 2 turns) to <i>always</i> exclude from the <i>local</i> saved dialogue chunk <i>during cache rebuilds</i>, minus 1 for final system prompt. <i><b>Do not set to 0</b></i>.<br><b>Example:</b> 5 = Keep last 4 turns fully dynamic during rebuilds.<br>1 = Save as much history as possible in the cache during rebuilds. <i>Default: 5</i>.<br><br><b>Note:</b><br> <code>When the local dialogue cache <i>is valid</i> (within its TTL), messages sent <i>after</i> the saved chunk are added individually. This means the amount of <code>'recent context after cache write'</code> grows with each turn in the conversation until the dialogue cache expires and gets rebuilt based on this setting.</code><br>"
+      },
+      "toggle_thinking": {
+        "type": "boolean",
+        "userlvl": "wip",
+        "description": "Toggle caching on or off. Only works on supporting models."
+      },
+      "thinking_tokens": {
+        "type": "number",
+        "userlvl": "wip",
+        "description": "How many maximum thinking tokens should be used. Must be higher the output token."
       }
     },
     "openaijson": {
