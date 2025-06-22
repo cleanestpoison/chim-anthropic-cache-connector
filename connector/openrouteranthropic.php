@@ -496,6 +496,10 @@ class openrouteranthropic
             'reasoning' => [
                 "enabled" => $toggleThinking,
                 "max_tokens" => $thinkingTokens,
+            ],
+            "cache_control" => [
+                "enabled" => True,
+                "ttl" => "1h"  # Cache for 5 minutes, or 1h for 1 hour.
             ]
         );
         unset($data["stop"]);
