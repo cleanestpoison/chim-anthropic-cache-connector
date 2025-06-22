@@ -555,12 +555,40 @@ class openrouterjsonanthropic
         // Make sure the array is not empty before trying to access the last element
         if ($lastIndex >= 0) {
             if ($geminiToggle) {
+                $offset = 10;
                 $elements = count($completeEventList);
-                $indexToCache = (int) ((floor($elements / ($CONTEXTHISTORY- 4)) * $CONTEXTHISTORY) - 4);  
+                $batchSize = $CONTEXTHISTORY - $offset;
+
+                $batchNumber = floor($elements / $batchSize);
+
+                logMessage("elements: $elements, batchsize: $batchSize, batchnumber: $batchNumber");
+
+                $indexToCache = max(0, ($batchNumber * $CONTEXTHISTORY) - $offset);
+
+                // Bounds check
+                if ($indexToCache >= $elements) {
+                    logMessage("index bigger or equal then elements size.");
+                    $indexToCache = $elements - 1;
+                }
+
+                if ($indexToCache == 0) {
+                    $indexToCache = 33;
+                }
+
                 logMessage("Index to Cache: $indexToCache");
-                $completeEventList[$indexToCache]["cache_control"] = $cacheControlType;
+
+                // Verify key exists
+                if (isset($completeEventList[$indexToCache])) {
+                    $completeEventList[$indexToCache]["cache_control"] = $cacheControlType;
+                } else {
+                    logMessage("Warning: Index $indexToCache not found in array");
+                }
             } else {
-                $completeEventList[$lastIndex]["cache_control"] = $cacheControlType;
+                if (isset($completeEventList[$lastIndex])) {
+                    $completeEventList[$lastIndex]["cache_control"] = $cacheControlType;
+                } else {
+                    logMessage("Warning: Index $lastIndex not found in array for non gemini");
+                }
             }   
         }
         
@@ -588,8 +616,6 @@ class openrouterjsonanthropic
         $tokenCount = countTokensByWords($completeEventList);
         logMessage($tokenCount);
 
-     
-
         // --- End Dialogue Processing ---
 
         // Payload Construction
@@ -607,7 +633,11 @@ class openrouterjsonanthropic
             'top_a' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["top_a"])) ? $GLOBALS["CONNECTOR"][$this->name]["top_a"] : 0),
             'reasoning' => [
                 "enabled" => $toggleThinking,
-                "max_tokens" => $thinkingTokens,
+                "max_tokens" => intval($thinkingTokens),
+            ],
+            "cache_control" => [
+            "enabled" => True,
+            "ttl" => "1h"  # Cache for 5 minutes, or 1h for 1 hour.
             ]
         );
 
