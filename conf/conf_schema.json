@@ -679,7 +679,7 @@
       },
       "PROVIDER": {
         "type": "string",
-        "description": "Leave blank unless you want to manually select a provider from OpenRouter. It is case sensitive!",
+        "description": "You MUST use the Anthropic provider if using sonnet. Leave blank unless you want to manually select a provider from OpenRouter. It is case sensitive!",
         "helpurl": "https://openrouter.ai/docs/provider-routing"
       },
       "max_tokens": {
