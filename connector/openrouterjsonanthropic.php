@@ -534,7 +534,6 @@ class openrouterjsonanthropic
         // remove instruction to add back later
         $instruction = array_pop($contentTextToSend);
 
-        //logMessage($contentTextToSend, "current context list");
         // do caching stuff
         $completeEventList = manageCharacterEventList($contentTextToSend, $cacheCombinedDialogueFile, $max_dialogue_cache_size);
 
@@ -809,7 +808,7 @@ class openrouterjsonanthropic
                 logMessage("Read Err [{$this->name}:{$herikaName}]: {$errMsg}");
                 $this->_rawbuffer .= "\nRead Err: {$errMsg}\n";
                 $this->_forcedClose = true;
-                return -1;
+                return $errMsg;
             }
         }
 
@@ -901,7 +900,7 @@ class openrouterjsonanthropic
                                 logMessage("Stream Err (Anthropic): {$eM}");
                                 $this->_rawbuffer .= "\nErr (Anthropic):{$eM}\n";
                                 $this->_forcedClose = true;
-                                return -1;
+                                return $eM;
 
                             case 'ping':
                                 // Ignore ping events
@@ -933,7 +932,7 @@ class openrouterjsonanthropic
                         logMessage("Stream Err (Generic): {$eM}");
                         $this->_rawbuffer .= "\nErr (Generic):{$eM}\n";
                         $this->_forcedClose = true;
-                        return -1;
+                        return $eM;
                     }
                 } else {
                     logMessage("JSON Decode Err [{$this->name}:{$herikaName}]: " . json_last_error_msg() . " Data: " . substr($jsonData, 0, 150) . "...");
@@ -951,7 +950,7 @@ class openrouterjsonanthropic
                 logMessage("Non-stream Err: {$eM}");
                 $this->_rawbuffer .= "\nNon-stream Err:{$eM}\n";
                 $this->_forcedClose = true;
-                return -1;
+                return $eM;
             }
         }
 
