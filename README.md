@@ -8,7 +8,8 @@ This guide will help you set up and use the CHIM Anthropic Cache Connector. Thes
 
 1.  **Download:** Get the latest version from the [Releases](https://github.com/cleanestpoison/chim-anthropic-cache-connector/releases) page.
 2.  **Copy Files:** Drag and copy the contents of the `HerikaServer` folder into your local HerikaServer directory.
-      * **Path:** `\wsl.localhost\DwemerAI4Skyrim3\var\www\html\HerikaServer`
+      * **Path:** `\wsl.localhost\DwemerAI4Skyrim3\var\www\html\HerikaServer` Simply open windows explorer and paste this path at the top.
+      * **Button:** In the chim app, there is also a button called 'Open Server Folder' which you can also use to get to the local Herika Server
 
 ## CHIM WebUI Configuration
 
