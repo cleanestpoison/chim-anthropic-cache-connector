@@ -14,8 +14,8 @@ This guide will help you set up and use the CHIM Anthropic Cache Connector. Thes
 
 1.  **Configuration Depth:** In the CHIM webUI, set **Configuration Depth** to **Experimental**. (Use `Ctrl+F` to search if needed.)
 2.  **AI/LLM Connectors Selection:** Navigate to **4.1. AI/LLM Connectors Selection**. (Use `Ctrl+F` to search if needed.)
-3.  **Select Connectors:** Check both `openrouterjsonanthropic` and `openrouteranthropic`.
-4.  **Set Current AI Service:** Cycle through **Current AI Service** until `openrouterjsonanthropic` is selected.
+3.  **Select Connectors:** Check `openrouterjsonanthropic`.
+4.  **Set Current AI Service:** Select a character with which you want to use the cache connector. Cycle through **Current AI Service** until `openrouterjsonanthropic` is selected. Be careful not to use the cache connector AI Service on the default profile. It could cost you dearly. Rather only use openrouterjsonanthropic on specific characters like followers.
 
 ## Temp Folder Management
 
@@ -30,6 +30,7 @@ To test the connector, simply use the **troubleshooting page** in the CHIM webUI
 ## Important Notes
 
   * **System Prompt Changes:** Every time you change your **System Prompt**, **Character Biography**, or **Dynamic Biography**, you should **clear the `temp` folder** to ensure the changes take effect.
+  * don't use the anthropic connector for diaries or summaries. the caching won't work on stuff that is rarely used and would just mean increased cost.
 
 -----
 
