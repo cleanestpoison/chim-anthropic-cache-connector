@@ -550,7 +550,7 @@
       },
       "PROVIDER": {
         "type": "string",
-        "description": "Leave blank unless you want to manually select a provider from OpenRouter. It is case sensitive!",
+        "description": "Leave blank unless you want to manually select a provider from OpenRouter. It is case sensitive! Should be Anthropic in most cases.",
         "helpurl": "https://openrouter.ai/docs/provider-routing"
       },
       "max_tokens": {
@@ -634,16 +634,17 @@
         "description": "Enable OpenRouter Json schema. Does not work with all models. You must set a provider that supports structured outputs. Requires ENFORCE_JSON to be true.",
         "helpurl": "https://openrouter.ai/docs/structured-outputs#model-support"
       },
-      "gemini_toggle": {
-        "type": "boolean",
+      "provider_caching": {
+        "type": "select",
+        "values": ["Anthropic", "Gemini", "OpenAI"],
         "userlvl": "wip",
-        "description": "Set this to true if using Gemini. Gemini needs a different form of caching."
+        "description": "Select which AI provider to use. Different providers may need different caching configurations."
       },
       "max_dialogue_cache_context_size": {
         "_title": "Maximum Event Cache Size",
         "userlvl": "pro",
         "type": "number",
-        "description": "Controls how big the cached context size can get until it resets. Default value is 4 times CONTEXT_HISTORY."
+        "description": "Controls how big the cached context size can get until it resets. Default value is 3 times CONTEXT_HISTORY. Good values are a CONTEXT_HISTORY of 50-100, and a max_dialogue_cache_context_size of 200-250"
       },
       "custom_last_instruction": {
         "type": "longstring",
@@ -658,12 +659,12 @@
       "toggle_thinking": {
         "type": "boolean",
         "userlvl": "wip",
-        "description": "Toggle caching on or off. Only works on supporting models."
+        "description": "Toggles thinking on or off. Only works on supporting models."
       },
       "thinking_tokens": {
         "type": "number",
         "userlvl": "wip",
-        "description": "How many maximum thinking tokens should be used. Must be higher the output token."
+        "description": "How many maximum thinking tokens should be used. Must be lower then output token."
       }
     },
     "openrouteranthropic": {
@@ -679,7 +680,7 @@
       },
       "PROVIDER": {
         "type": "string",
-        "description": "You MUST use the Anthropic provider if using sonnet. Leave blank unless you want to manually select a provider from OpenRouter. It is case sensitive!",
+        "description": "Leave blank unless you want to manually select a provider from OpenRouter. It is case sensitive!",
         "helpurl": "https://openrouter.ai/docs/provider-routing"
       },
       "max_tokens": {

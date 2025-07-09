@@ -3,10 +3,20 @@
 $enginePath = dirname((__FILE__)) . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR;
 
 
-function logMessage(string|array $message, ?string $context = null, string $level = 'INFO', string $logFile = 'cache.log', ): bool
+function logMessage(string|array $message, ?string $context = null, string $level = 'INFO', string $logFile = 'cache.log'): bool
 {
-    // Get the current timestamp in a readable format
     $timestamp = date('Y-m-d H:i:s');
+    if ($message == null) {
+            // Format the log entry: [YYYY-MM-DD HH:MM:SS] LEVEL: Your message
+        $logEntry = "[{$timestamp}] {$level}: Null message\n";
+
+        // Attempt to write the log entry to the file
+        // FILE_APPEND ensures the content is added to the end of the file.
+        // LOCK_EX acquires an exclusive lock, preventing race conditions during concurrent writes.
+        $result = file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+        return true;
+    }
+    // Get the current timestamp in a readable format
     $logFile = __DIR__ . "/../log/" . $logFile;
     $formattedMessage = '';
 
@@ -147,6 +157,7 @@ function writeArrayToFileWithCache($array, $filename, $cacheHours = 1)
                 // Attempt to unserialize the data
                 $cachedArray = unserialize($fileContents);
                 if ($cachedArray !== false) {
+                    touch($filename);
                     logMessage("Return cached System entry.");
                     return $cachedArray;
                 }
@@ -272,6 +283,35 @@ function arraysEqual($array1, $array2)
 {
     // Convert arrays to JSON strings for comparison
     return json_encode($array1) === json_encode($array2);
+}
+
+function extract_any_subsection(&$source, $subsectionName, $extractAll = false) {
+    // Pattern to match ### level subsections with the specific name
+    $pattern = '/(^### ' . preg_quote($subsectionName, '/') . '.*?)(?=^###|^##|^# |\z)/msi';
+
+    if ($extractAll) {
+        // Extract ALL instances of this subsection
+        if (preg_match_all($pattern, $source, $matches)) {
+            $extracted = [];
+            foreach ($matches[1] as $match) {
+                $extracted[] = trim($match);
+            }
+            // Remove all instances from the source
+            $source = preg_replace($pattern, '', $source);
+
+            // Combine with header
+            $combinedContent = implode("\n\n", $extracted);
+            return $subsectionName . ":\n" . $combinedContent;
+        }
+    } else {
+        // Extract only the first instance (for single-occurrence sections)
+        if (preg_match($pattern, $source, $matches)) {
+            $extracted = trim($matches[1]);
+            // Remove this subsection from the source
+            $source = preg_replace($pattern, '', $source, 1);
+            return $subsectionName . ":\n" . $extracted;
+        }
+    }
 }
 
 function containsOnlySymbols(string $str): bool
@@ -415,16 +455,18 @@ class openrouterjsonanthropic
         $n_ctxsize = count($contextData);
 
         logMessage("[{$this->name}:{$herikaName}] OPEN START: Received contextData with {$n_ctxsize} elements.");
+        logMessage($contextData);
 
         // --- Config ---
         $url = isset($GLOBALS["CONNECTOR"][$this->name]["url"]) ? $GLOBALS["CONNECTOR"][$this->name]["url"] : '';
         $MAX_TOKENS = ((isset($GLOBALS["CONNECTOR"][$this->name]["max_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_tokens"] : 4096) + 0);
         $model = (isset($GLOBALS["CONNECTOR"][$this->name]["model"])) ? $GLOBALS["CONNECTOR"][$this->name]["model"] : 'anthropic/claude-3-haiku-20240307';
-        $max_dialogue_cache_size = ((isset($GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"] : $n_ctxsize * 3) + 0);
+        $max_dialogue_cache_size = ((isset($GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"]) ? $GLOBALS["CONNECTOR"][$this->name]["max_dialogue_cache_context_size"] : $n_ctxsize * 4) + 0);
         $customInstruction = isset($GLOBALS["CONNECTOR"][$this->name]["custom_last_instruction"]) ? $GLOBALS["CONNECTOR"][$this->name]["custom_last_instruction"] : '';
         $toggleThinking = isset($GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"]) ? $GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"] : false;
-        $thinkingTokens = isset($GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"] : 2000;
-        $geminiToggle = isset($GLOBALS["CONNECTOR"][$this->name]["gemini_toggle"]) ? $GLOBALS["CONNECTOR"][$this->name]["gemini_toggle"] : false;
+        $thinkingTokens = isset($GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"] : 1000;
+        $provider_caching = isset($GLOBALS["CONNECTOR"][$this->name]["provider_caching"]) ? $GLOBALS["CONNECTOR"][$this->name]["provider_caching"] : "Anthropic";
+        logMessage("provider caching: $provider_caching");
         $CONTEXTHISTORY = $GLOBALS['CONTEXT_HISTORY'];
         logMessage("CONTEXT HISTORY: $CONTEXTHISTORY");
 
@@ -434,7 +476,7 @@ class openrouterjsonanthropic
         $cacheSystemFile = "system_cache_json_{$herikaName}.tmp";
         $cacheCombinedDialogueFile = "combined_dialogue_cache_json_{$herikaName}.tmp";
 
-        $cacheControlType = array("type" => "ephemeral", "ttl" => "1h");
+        $cacheControlType = ["type" => "ephemeral", "ttl" => "1h"];
 
         // build actions and json instruction
         if (isset($GLOBALS["PATCH_PROMPT_ENFORCE_ACTIONS"]) && $GLOBALS["PATCH_PROMPT_ENFORCE_ACTIONS"]) {
@@ -479,15 +521,23 @@ class openrouterjsonanthropic
                 $environmental = extract_and_remove_section($systemContentCurrent, 'Environmental Context');
                 $additional = extract_and_remove_section($systemContentCurrent, 'Additional Information');
 
+                $equipment = extract_any_subsection($systemContentCurrent, 'Equipment', true); // extractAll = true
+                $appearance = extract_any_subsection($systemContentCurrent, 'Physical Appearance', false); // single instance
+                $cleanliness = extract_any_subsection($systemContentCurrent, 'Cleanliness', true); // extractAll = true
+
                 $additionalCharacter = extract_specific_section($systemContentCurrent, 'Additional Character Information');
                 $combatStatus = extract_specific_section($systemContentCurrent, 'Combat Vitals');
                 $arousal = extract_specific_section($systemContentCurrent, sectionHeader: 'Arousal Status');
 
-                $dynamicEnvironment = $environmental . "\n\n" . $additional . "\n\n" . $additionalCharacter . "\n\n" . $combatStatus . "\n\n" . $arousal;
+                $dynamicEnvironment = $environmental . "\n\n" . $additional . "\n\n" . $additionalCharacter . "\n\n" . $combatStatus . "\n\n" . $arousal . "\n\n" . $equipment . "\n\n" . $appearance . "\n\n" . $cleanliness;
 
                 $finalSend = $systemContentCurrent . "\n" . $actionsText;
 
-                $systemEntries[] = array("role" => "system", "content" => array(array('type' => 'text', 'text' => $finalSend, "cache_control" => $cacheControlType)));
+                $content = ['type' => 'text', 'text' => $finalSend];
+                if ($provider_caching !== "OpenAI") {
+                    $content['cache_control'] = $cacheControlType;
+                }
+                $systemEntries[] = array("role" => "system", "content" => array($content));
             }
         }
 
@@ -553,7 +603,8 @@ class openrouterjsonanthropic
 
         // Make sure the array is not empty before trying to access the last element
         if ($lastIndex >= 0) {
-            if ($geminiToggle) {
+            if ($provider_caching == "Gemini") {
+                logMessage("Using gemini caching");
                 $offset = 10;
                 $elements = count($completeEventList);
                 $batchSize = $CONTEXTHISTORY - $offset;
@@ -577,13 +628,13 @@ class openrouterjsonanthropic
                 logMessage("Index to Cache: $indexToCache");
 
                 // Verify key exists
-                if (isset($completeEventList[$indexToCache])) {
+                if (isset($completeEventList[$indexToCache]) && $provider_caching != "OpenAI") {
                     $completeEventList[$indexToCache]["cache_control"] = $cacheControlType;
                 } else {
                     logMessage("Warning: Index $indexToCache not found in array");
                 }
             } else {
-                if (isset($completeEventList[$lastIndex])) {
+                if (isset($completeEventList[$lastIndex]) && $provider_caching != "OpenAI") {
                     $completeEventList[$lastIndex]["cache_control"] = $cacheControlType;
                 } else {
                     logMessage("Warning: Index $lastIndex not found in array for non gemini");
@@ -635,8 +686,8 @@ class openrouterjsonanthropic
                 "max_tokens" => intval($thinkingTokens),
             ],
             "cache_control" => [
-            "enabled" => True,
-            "ttl" => "1h"  # Cache for 5 minutes, or 1h for 1 hour.
+                "enabled" => True,
+                "ttl" => "1h"  # Cache for 5 minutes, or 1h for 1 hour.
             ]
         );
 
