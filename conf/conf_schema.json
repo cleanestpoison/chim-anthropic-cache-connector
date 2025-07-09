@@ -638,7 +638,7 @@
         "type": "select",
         "values": ["Anthropic", "Gemini", "OpenAI"],
         "userlvl": "wip",
-        "description": "Select which AI provider to use. Different providers may need different caching configurations."
+        "description": "Select which AI provider to use. Different providers may need different caching configurations. Delete your temp folder after changing this!"
       },
       "max_dialogue_cache_context_size": {
         "_title": "Maximum Event Cache Size",
