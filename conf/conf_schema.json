@@ -636,7 +636,11 @@
       },
       "provider_caching": {
         "type": "select",
-        "values": ["Anthropic", "Gemini", "OpenAI"],
+        "values": [
+          "Anthropic",
+          "Gemini",
+          "OpenAI"
+        ],
         "userlvl": "wip",
         "description": "Select which AI provider to use. Different providers may need different caching configurations. Delete your temp folder after changing this!"
       },
