@@ -560,6 +560,16 @@
         "type": "boolean",
         "description": "Enable OpenRouter Json schema. Does not work with all models. You must set a provider that supports structured outputs. Requires ENFORCE_JSON to be true.",
         "helpurl": "https://openrouter.ai/docs/structured-outputs#model-support"
+      },
+      "toggle_thinking": {
+        "type": "boolean",
+        "userlvl": "wip",
+        "description": "Toggle caching on or off. Only works on supporting models."
+      },
+      "thinking_tokens": {
+        "type": "number",
+        "userlvl": "wip",
+        "description": "How many maximum thinking tokens should be used. Must be higher the output token."
       }
     },
     "openrouter": {
@@ -810,6 +820,16 @@
         "type": "number",
         "userlvl": "wip",
         "description": "How many maximum thinking tokens should be used. Must be lower then output token."
+      },
+      "effort_level": {
+        "type": "select",
+        "values": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "userlvl": "wip",
+        "description": "Select which AI provider to use. Different providers may need different caching configurations."
       }
     },
     "openrouteranthropic": {

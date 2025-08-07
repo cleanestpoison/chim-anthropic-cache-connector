@@ -455,7 +455,6 @@ class openrouterjsonanthropic
         $n_ctxsize = count($contextData);
 
         logMessage("[{$this->name}:{$herikaName}] OPEN START: Received contextData with {$n_ctxsize} elements.");
-        logMessage($contextData);
 
         // --- Config ---
         $url = isset($GLOBALS["CONNECTOR"][$this->name]["url"]) ? $GLOBALS["CONNECTOR"][$this->name]["url"] : '';
@@ -466,6 +465,7 @@ class openrouterjsonanthropic
         $toggleThinking = isset($GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"]) ? $GLOBALS["CONNECTOR"][$this->name]["toggle_thinking"] : false;
         $thinkingTokens = isset($GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"]) ? $GLOBALS["CONNECTOR"][$this->name]["thinking_tokens"] : 1000;
         $provider_caching = isset($GLOBALS["CONNECTOR"][$this->name]["provider_caching"]) ? $GLOBALS["CONNECTOR"][$this->name]["provider_caching"] : "Anthropic";
+        $effort_level = isset($GLOBALS["CONNECTOR"][$this->name]["effort_level"]) ? $GLOBALS["CONNECTOR"][$this->name]["effort_level"] : "low";
         logMessage("provider caching: $provider_caching");
         $CONTEXTHISTORY = $GLOBALS['CONTEXT_HISTORY'];
         logMessage("CONTEXT HISTORY: $CONTEXTHISTORY");
@@ -669,6 +669,19 @@ class openrouterjsonanthropic
         // --- End Dialogue Processing ---
 
         // Payload Construction
+        $reasoning = [
+            "enabled" => $toggleThinking,
+        ];
+
+        // Only add effort if the boolean condition is true
+        if ($provider_caching === "OpenAI") {
+            $reasoning["effort"] = $effort_level;
+        } else {
+            $reasoning["max_tokens"] = intval($thinkingTokens);
+        }
+
+
+        // Payload Construction
         $data = array(
             'model' => $model,
             'messages' => $finalMessagesToSend,
@@ -681,10 +694,7 @@ class openrouterjsonanthropic
             'repetition_penalty' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["repetition_penalty"])) ? $GLOBALS["CONNECTOR"][$this->name]["repetition_penalty"] : 1),
             'min_p' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["min_p"])) ? $GLOBALS["CONNECTOR"][$this->name]["min_p"] : 0),
             'top_a' => floatval((isset($GLOBALS["CONNECTOR"][$this->name]["top_a"])) ? $GLOBALS["CONNECTOR"][$this->name]["top_a"] : 0),
-            'reasoning' => [
-                "enabled" => $toggleThinking,
-                "max_tokens" => intval($thinkingTokens),
-            ],
+            'reasoning' => $reasoning,
             "cache_control" => [
                 "enabled" => True,
                 "ttl" => "1h"  # Cache for 5 minutes, or 1h for 1 hour.
