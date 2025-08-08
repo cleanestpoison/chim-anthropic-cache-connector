@@ -824,7 +824,7 @@
       "effort_level": {
         "type": "select",
         "values": [
-          "minimum",
+          "minimal",
           "low",
           "medium",
           "high"
